@@ -389,11 +389,9 @@ view. Root movement is approximate and remains subject to webcam review.
 ### Two-hand live milestone
 
 **Auto (both hands)** shows a model for each reliably detected side. Each model
-has its own scene, skinned skeleton, animation mixer, finger calibration, and
-thumb calibration. One hand uses the current single-hand framing; two hands
-occupy separate halves of the same viewer. The shared buttons control both
-views; dragging orbits the individual half. The room grids are rendered per
-half rather than representing a shared space for hand-to-hand contact.
+has its own skinned skeleton, animation mixer, finger calibration, and thumb
+calibration. Both now share one scene, camera, room grid, and render loop.
+Dragging or changing the view moves the camera around both hands together.
 
 `src/handPresence.js` gates samples using valid 21-point image/world landmarks,
 MediaPipe's handedness classification score, and freshness. A hand appears after
@@ -418,7 +416,30 @@ the missing model. Return each hand and check its calibration persists. Test
 overlap, crossing, sideways turns, camera off/on, and the exported Test animation.
 Automated presence tests cover independent entry/exit, score hysteresis, invalid
 data, duplicate labels, stale inference, and reacquisition. Webcam behavior and
-two-renderer performance still require device testing.
+rendering performance still require device testing.
+
+### Shared position movement
+
+`src/handPosition.js` maps the average image position of wrist and four finger
+bases into shared scene coordinates. X mirrors the webcam; Y follows vertical
+position. The initial movement spans 65% of scene width and 35% of height, with
+rotated model bounds providing margins. Both hands use the same mapping, with
+no half-view limits or recentering when the other hand enters/leaves. Input is
+absolute position rather than accumulated distance, so returning to the same
+camera position returns the model to the same target without drift.
+
+Mapping dimensions follow the viewer aspect ratio at the default camera
+distance; zoom/orbit do not change the targets. Model scale stays fixed and
+placement depth remains zero. Existing palm/finger/thumb rotations, root motion,
+calibration drawer, and tracking-loss grace are preserved. Only fresh reliable
+samples update positions. The old bounded position returned by `getPalmPose`
+is superseded in the viewer by this shared mapping.
+
+Test each hand moving left/right and up/down, then bring both together, cross
+their positions, separate, and return to the starting locations. Check one hand
+leaving does not reposition the other, and test after resizing/orbiting/resetting
+the view. Overlapping models may intersect because this milestone does not
+estimate which real hand is in front or add physical collision handling.
 
 ### Original export notes
 

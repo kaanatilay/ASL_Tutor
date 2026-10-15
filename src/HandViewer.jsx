@@ -3,6 +3,7 @@ import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
 import { getHandDisplay, HAND_SIDES } from './handPresence'
+import { getHandPosition } from './handPosition'
 import { getPalmPose } from './palmPose'
 import { getFingerAngles, getFingerReference, TRACKED_FINGERS, mapFingerBends } from './indexFingerPose'
 import { getCalibrationFeedback } from './calibrationFeedback'
@@ -50,7 +51,6 @@ function addRoom(scene) {
 
 export default function HandViewer({ handSampleRef, handStatus = [], cameraState, selectedHand, onSelectHand }) {
   const hostRef = useRef(null)
-  const rightHostRef = useRef(null)
   const selectionRef = useRef(selectedHand)
   const focusRef = useRef('Left')
   const visibleSides = handStatus.filter(hand => hand.visible && (selectedHand === 'auto' || selectedHand === hand.side)).map(hand => hand.side)
@@ -87,23 +87,60 @@ export default function HandViewer({ handSampleRef, handStatus = [], cameraState
 
   // Keep the Three.js lifecycle inside this component; camera tracking is separate.
   useEffect(() => {
-    const apis = {}
-    // Each canvas has its own scene, skinned skeleton and animation mixer.
-    // Shared controls operate both views; only the focused hand writes diagnostics.
-    const createScene = (host, side) => {
+    const host = hostRef.current
+    let renderer
+    try {
+      renderer = new THREE.WebGLRenderer({ antialias: true })
+    } catch {
+      let active = true
+      Promise.resolve().then(() => {
+        if (active) { setFailed(true); setStatus('3D preview is unavailable. Try a browser with WebGL enabled.') }
+      })
+      return () => { active = false }
+    }
+    // One room, camera and render loop let the independent rigs cross/overlap.
+    const scene = new THREE.Scene()
+    scene.background = new THREE.Color('#142943')
+    const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 80)
+    camera.position.set(0, 3.7, 10)
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
+    host.appendChild(renderer.domElement)
+    renderer.domElement.setAttribute('aria-label', '3D hands in a shared room. Drag to rotate the view; scroll or pinch to zoom.')
+    const controls = new OrbitControls(camera, renderer.domElement)
+    controls.target.set(0, 2.35, 0)
+    controls.enableDamping = true
+    controls.enablePan = false
+    controls.minDistance = 5
+    controls.maxDistance = 19
+    controls.update()
+    scene.add(new THREE.HemisphereLight(0xe9f3ff, 0x526884, 2.5))
+    const key = new THREE.DirectionalLight(0xffffff, 3)
+    key.position.set(-3, 6, 7)
+    scene.add(key)
+    addRoom(scene)
+    let currentView = 'room'
+    let movementViewport = { width: 8, height: 7.28 }
+    // Mapping uses the default camera distance, independent of zoom/orbit, so
+    // exploring the view cannot move the models or change their physical size.
+    const resize = () => {
+      const { width, height } = host.getBoundingClientRect()
+      camera.aspect = Math.max(width, 1) / Math.max(height, 1)
+      camera.updateProjectionMatrix()
+      renderer.setSize(Math.max(width, 1), Math.max(height, 1))
+      const sceneHeight = 2 * 10 * Math.tan(THREE.MathUtils.degToRad(camera.fov / 2))
+      movementViewport = { width: sceneHeight * camera.aspect, height: sceneHeight }
+    }
+    const observer = new ResizeObserver(resize)
+    observer.observe(host)
+    resize()
+    const applyView = next => {
+      currentView = next
+      controls.target.set(0, 2.35, 0)
+      camera.position.set(0, next === 'straight' ? 2.35 : 3.7, 10)
+      controls.update()
+    }
+    const createRig = side => {
       const focused = () => focusRef.current === side
-      let renderer
-      try {
-        renderer = new THREE.WebGLRenderer({ antialias: true })
-      } catch {
-        let active = true
-        Promise.resolve().then(() => {
-          if (!active) return
-          if (focused()) setFailed(true)
-          if (focused()) setStatus('3D preview is unavailable. Try a browser with WebGL enabled.')
-        })
-        return () => { active = false }
-      }
       let disposed = false
       let mixer
       let model
@@ -119,13 +156,9 @@ export default function HandViewer({ handSampleRef, handStatus = [], cameraState
       let modelPalmWidth = 0
       const activeHand = side
       const bendAxis = new THREE.Vector3(1, 0, 0)
-      let currentView = 'room'
-      let lastTime
       let lastTipReadout = -Infinity
       let lastFeedbackTime = -Infinity
       let lastFeedbackKey = ''
-      const scene = new THREE.Scene()
-      scene.background = new THREE.Color('#142943')
       // Draw bone centers through the skin only when requested. Cyan is the
       // animated skeleton; amber is its target; magenta is raw tracked direction.
       const makeThumbLine = color => {
@@ -146,65 +179,6 @@ export default function HandViewer({ handSampleRef, handStatus = [], cameraState
       thumbDots.frustumCulled = false
       thumbDots.renderOrder = 11
       scene.add(thumbDots)
-      const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 80)
-      camera.position.set(0, 3.7, 8.5)
-      renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
-      host.appendChild(renderer.domElement)
-      renderer.domElement.setAttribute('aria-label', '3D hand. Drag to rotate the view; scroll or pinch to zoom.')
-      const controls = new OrbitControls(camera, renderer.domElement)
-      controls.target.set(0, 2, 0)
-      controls.enableDamping = true
-      controls.enablePan = false
-      controls.minDistance = 5
-      controls.maxDistance = 19
-      controls.update()
-      controls.saveState()
-      scene.add(new THREE.HemisphereLight(0xe9f3ff, 0x526884, 2.5))
-      const key = new THREE.DirectionalLight(0xffffff, 3)
-      key.position.set(-3, 6, 7)
-      scene.add(key)
-      addRoom(scene)
-
-      // Resize only the render surface; the CSS grid owns the panel dimensions.
-      let lastSurface = ''
-      const resize = () => {
-        const { width, height } = host.getBoundingClientRect()
-        const dual = HAND_SIDES.filter(hand => getHandDisplay(handSampleRef.current, hand, performance.now(), cameraOnRef.current).visible && (selectionRef.current === 'auto' || selectionRef.current === hand)).length === 2
-        const surface = `${width}:${height}:${currentView}:${dual}`
-        if (surface === lastSurface) return
-        lastSurface = surface
-        camera.aspect = Math.max(width, 1) / Math.max(height, 1)
-        // Off-axis framing keeps the hand in its left slot while the straight-on
-        // camera faces the hand directly, removing the previous downward bias.
-        camera.clearViewOffset()
-        if (currentView === 'straight' && !dual) camera.setViewOffset(Math.max(width, 1), Math.max(height, 1), width * 0.22, 0, Math.max(width, 1), Math.max(height, 1))
-        camera.updateProjectionMatrix()
-        renderer.setSize(Math.max(width, 1), Math.max(height, 1))
-      }
-      const observer = new ResizeObserver(resize)
-      observer.observe(host)
-      resize()
-      const applyView = next => {
-        currentView = next
-        controls.target.set(next === 'straight' ? -1.65 : 0, next === 'straight' ? 2.35 : 2, 0)
-        camera.position.set(next === 'straight' ? -1.65 : 0, next === 'straight' ? 2.35 : 3.7, 8.5)
-        controls.update()
-        resize()
-      }
-      apis[side] = {
-        reset: () => applyView(currentView),
-        view: applyView,
-        zoom: factor => {
-          const offset = camera.position.clone().sub(controls.target)
-          offset.setLength(THREE.MathUtils.clamp(offset.length() * factor, 5, 19))
-          camera.position.copy(controls.target).add(offset)
-          controls.update()
-        },
-        restart: () => { mixer?.setTime(0) },
-        // Stop the clip at its first frame before live tracking takes control.
-        open: () => { mixer?.setTime(0) },
-      }
-
       new GLTFLoader().load(MODEL_URL, gltf => {
         if (disposed) { disposeObjects(gltf.scene); return }
         try {
@@ -233,7 +207,7 @@ export default function HandViewer({ handSampleRef, handStatus = [], cameraState
           placement.scale.setScalar(scale)
           orientation.position.copy(center).multiplyScalar(-1)
           placement.add(orientation)
-          placement.position.set(-1.65, 2.35, 0)
+          placement.position.set(0, 2.35, 0)
           scene.add(placement)
           if (gltf.animations.length) {
             mixer = new THREE.AnimationMixer(model)
@@ -270,15 +244,12 @@ export default function HandViewer({ handSampleRef, handStatus = [], cameraState
         }
       })
 
-      renderer.setAnimationLoop(time => {
-        const delta = lastTime === undefined ? 0 : Math.min((time - lastTime) / 1000, 0.05)
-        lastTime = time
-        const live = modeRef.current === 'live'
+      const tick = (delta, live) => {
         if (placement && appliedMode !== modeRef.current) {
           mixer?.setTime(0)
           placement.quaternion.identity()
           placement.scale.set(Math.abs(placement.scale.x), placement.scale.y, placement.scale.z)
-          placement.position.set(-1.65, 2.35, 0)
+          placement.position.set(0, 2.35, 0)
           appliedMode = modeRef.current
           thumbTargets = null
           thumbRootTarget = null
@@ -288,8 +259,6 @@ export default function HandViewer({ handSampleRef, handStatus = [], cameraState
         const display = getHandDisplay(handSampleRef.current, side, performance.now(), cameraOnRef.current)
         const allowed = selectionRef.current === 'auto' || selectionRef.current === side
         if (placement) placement.visible = live ? allowed && display.visible : side === 'Left'
-        // Detect one/two-hand layout changes as well as window resizes.
-        resize()
         if (!live && playingRef.current) mixer?.update(delta)
         if (live && placement) {
           const display = getHandDisplay(handSampleRef.current, side, performance.now(), cameraOnRef.current)
@@ -308,12 +277,15 @@ export default function HandViewer({ handSampleRef, handStatus = [], cameraState
             placement.quaternion.slerp(pose.rotation, blend)
             const scale = Math.abs(placement.scale.x)
             placement.scale.x = pose.side * scale
-            // Keep the rotated open hand inside its left slot. Estimate horizontal
-            // extent from the rest bounds without rescanning every mesh vertex.
+            // Shared camera space replaces the old per-hand half-slot clamp.
+            // Bounds use rotated rest dimensions so models mostly stay in frame.
             const matrix = new THREE.Matrix4().makeRotationFromQuaternion(placement.quaternion).elements
-            const extent = (Math.abs(matrix[0]) * openSize.x + Math.abs(matrix[4]) * openSize.y + Math.abs(matrix[8]) * openSize.z) / 2
-            pose.position.x = THREE.MathUtils.clamp(pose.position.x, -5.5 + extent, -0.15 - extent)
-            placement.position.lerp(pose.position, blend)
+            const extent = {
+              x: (Math.abs(matrix[0]) * openSize.x + Math.abs(matrix[4]) * openSize.y + Math.abs(matrix[8]) * openSize.z) / 2,
+              y: (Math.abs(matrix[1]) * openSize.x + Math.abs(matrix[5]) * openSize.y + Math.abs(matrix[9]) * openSize.z) / 2,
+            }
+            const position = getHandPosition(sample, movementViewport, extent)
+            if (position) placement.position.lerp(position, blend)
             const now = performance.now()
             const fingerBlend = 1 - Math.exp(-delta * 14)
             const tracked = []
@@ -399,7 +371,6 @@ export default function HandViewer({ handSampleRef, handStatus = [], cameraState
             if (key !== lastFeedbackKey) { lastFeedbackKey = key; if (focused()) setCalibrationFeedback({ ...feedback, hand: side }) }
           }
         }
-        controls.update()
         const showSkeleton = placement?.visible && thumbSkeletonRef.current && thumbJoints.length === 3 && thumbJoints.every(Boolean)
         thumbBonesLine.visible = thumbDots.visible = showSkeleton
         thumbTargetLine.visible = showSkeleton && live && Boolean(thumbTargets)
@@ -438,25 +409,47 @@ export default function HandViewer({ handSampleRef, handStatus = [], cameraState
             writePoints(thumbRawLine, raw)
           }
         }
-        renderer.render(scene, camera)
-      })
-      return () => {
-        disposed = true
-        observer.disconnect()
-        renderer.setAnimationLoop(null)
-        controls.dispose()
-        mixer?.stopAllAction()
-        if (model) mixer?.uncacheRoot(model)
-        disposeObjects(scene)
-        renderer.dispose()
-        renderer.domElement.remove()
+      }
+      return {
+        tick,
+        open: () => mixer?.setTime(0),
+        dispose: () => {
+          disposed = true
+          mixer?.stopAllAction()
+          if (model) mixer?.uncacheRoot(model)
+        },
       }
     }
-    const cleanups = [createScene(hostRef.current, 'Left'), createScene(rightHostRef.current, 'Right')]
-    // Both canvases share zoom, view and playback controls without sharing bones.
-    apiRef.current = Object.fromEntries(['reset', 'view', 'zoom', 'restart', 'open'].map(action =>
-      [action, (...args) => { for (const api of Object.values(apis)) api[action](...args) }]))
-    return () => { apiRef.current = null; cleanups.forEach(cleanup => cleanup?.()) }
+    const rigs = HAND_SIDES.map(createRig)
+    apiRef.current = {
+      reset: () => applyView(currentView), view: applyView,
+      zoom: factor => {
+        const offset = camera.position.clone().sub(controls.target)
+        offset.setLength(THREE.MathUtils.clamp(offset.length() * factor, 5, 19))
+        camera.position.copy(controls.target).add(offset)
+        controls.update()
+      },
+      restart: () => rigs.forEach(rig => rig.open()),
+      open: () => rigs.forEach(rig => rig.open()),
+    }
+    let lastTime
+    renderer.setAnimationLoop(time => {
+      const delta = lastTime === undefined ? 0 : Math.min((time - lastTime) / 1000, 0.05)
+      lastTime = time
+      controls.update()
+      rigs.forEach(rig => rig.tick(delta, modeRef.current === 'live'))
+      renderer.render(scene, camera)
+    })
+    return () => {
+      apiRef.current = null
+      observer.disconnect()
+      renderer.setAnimationLoop(null)
+      controls.dispose()
+      rigs.forEach(rig => rig.dispose())
+      disposeObjects(scene)
+      renderer.dispose()
+      renderer.domElement.remove()
+    }
   }, [handSampleRef])
 
   function changeMode(nextMode) {
@@ -492,8 +485,7 @@ export default function HandViewer({ handSampleRef, handStatus = [], cameraState
   return <section className="hand-viewer-card" aria-labelledby="hand-viewer-title">
     <div className="viewer-heading"><h2 id="hand-viewer-title">Your hand in 3D</h2><span>{mode === 'live' ? 'Live palm' : 'Model preview'}</span></div>
     <div className="hand-room">
-      <div className="hand-render" ref={hostRef} style={{ right: mode === 'live' && visibleSides.length === 2 ? '50%' : 0, display: mode === 'live' && !visibleSides.includes('Left') ? 'none' : undefined }} />
-      <div className="hand-render" ref={rightHostRef} style={{ left: visibleSides.length === 2 ? '50%' : 0, display: mode !== 'live' || !visibleSides.includes('Right') ? 'none' : undefined }} />
+      <div className="hand-render" ref={hostRef} />
       {mode === 'live' && <div className="hand-identification" role="status">
         {handStatus.map(hand => <span key={hand.side} className={hand.warning ? 'hand-uncertain' : ''}>
           {hand.side}: {hand.live ? 'tracked' : hand.visible ? 'holding pose' : 'not visible'}{hand.score == null ? '' : ` · ID ${Math.round(hand.score * 100)}%`}{hand.visible ? ` · calibrated ${calibrationCounts[hand.side]}/5` : ''}
@@ -501,7 +493,6 @@ export default function HandViewer({ handSampleRef, handStatus = [], cameraState
         {handStatus.some(hand => hand.warning) && <strong>Keep hands clearly visible and separated.</strong>}
       </div>}
       {!ready && <p className="viewer-message" role={failed ? 'alert' : 'status'}>{status}</p>}
-      {ready && mode === 'test' && <span className="second-hand-space">Live mirror supports one or two hands</span>}
       <span className="orbit-hint">Drag to orbit · Scroll to zoom</span>
     <div className="viewer-controls" aria-label="3D preview controls">
       <button disabled={!ready || failed} aria-pressed={mode === 'live'} onClick={() => changeMode(mode === 'live' ? 'test' : 'live')}>{mode === 'live' ? 'Test mode' : 'Live mirror'}</button>
