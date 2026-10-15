@@ -195,11 +195,82 @@ of camera permission. It starts paused; **Play test** runs the exported finger
 sequence, **Pause** holds the pose, and **Restart** returns to its beginning.
 Drag inside the room to orbit, scroll/pinch or use +/- to zoom, and use
 **Reset view** to restore the camera. The alphabet buttons still select letters;
-they do not pose this test model. Live mirroring is a later milestone.
+they do not pose this test model.
+
+**Live mirror** switches to palm-only webcam mirroring. Enable the camera and
+bring one open hand into view. Use **Hand > Left / Right** to choose the tracked
+hand without restarting the camera; **Auto** keeps the first detected handedness
+for that selection. Live mode starts in **Straight-on** view, aimed directly at
+the hand with shifted framing to retain its left slot. **Room angle** restores
+the elevated perspective. Reset view restores the selected preset. Rotation
+uses world palm landmarks, while small mirrored X/Y movements use image points.
+The palm plane averages several wrist/knuckle triangles and holds its last pose
+if the 3D points become nearly collinear. This does not snap edge-on poses to a
+fixed angle or guarantee accuracy when the tracker misestimates hidden joints.
+Scale and depth stay fixed. The index finger now follows tracked base, middle,
+and tip-joint flexion; other fingers stay open. Curl is measured relative to the
+palm, limited to 85/110/85 degrees, and smoothed. Sideways spreading is not mapped
+yet. Invalid index samples hold its last bend while palm tracking can continue.
+The index tip has a straightening tolerance: estimated bends up to 10 degrees
+display as straight, with gradual blending back to the measured angle by 25
+degrees. Base and middle joints retain their existing mapping. This reduces
+resting tip curl but also reduces sensitivity to tiny intentional tip bends;
+verify the thresholds with the webcam before tuning further.
+
+If the tip stays curled while your real finger is straight, hold it straight and
+enter Live mode. Startup calibration runs automatically once the base and middle
+joints are near straight; hold the entire index straight for about one second.
+It retries unstable or interrupted startup samples and saves one reference per
+hand for the session, including a valid zero offset. It does not recalibrate
+while curling after success. **Set straight index** remains a manual retry.
+The calibration status distinguishes **straighten your index**, **hold still**,
+and **tracking unclear**. A progress bar combines elapsed sampling time and
+distinct sample count; it cannot reach 100% until the existing stability check
+accepts calibration. Interrupted or rejected attempts reset progress and explain
+the retry. This is collection progress, not tracking confidence. Thresholds and
+saved calibration behavior are unchanged by this feedback revision.
+About one second of distinct valid
+samples (at least ten) supplies a median tip offset; unstable or insufficient
+samples are rejected. The readout shows raw **estimated** bend, corrected model
+**target**, and saved **neutral** offset in degrees. Target is not the current
+smoothed bone angle. Offsets are separate for Left and Right, remain only for this
+page session, and can be removed using **Clear calibration**. The calibration
+affects only the fingertip joint, before its straightening tolerance. Controls
+and diagnostics are overlaid inside the blue room, leaving more panel area for
+the model. The alphabet keeps its prior height while the viewer now expands
+to align the full right column with the full webcam card. Test a slow
+curl and return to straight after calibrating. It cannot fix all angle-dependent
+depth errors; report the displayed numbers if the pose still looks wrong.
+
+For the index-turning correction, middle and tip magnitudes now use the full 3D
+angle between neighboring segments; palm orientation supplies bend direction.
+The base still projects out sideways spreading. The **Middle: 3D → target**
+readout compares tracker geometry with the commanded model angle (before display
+smoothing). Hold a roughly 90-degree middle bend and rotate outward: if 3D drops,
+the tracked joints changed; if 3D stays near 90 but target drops, direction/mapping
+still needs work. This does not reconstruct hidden joints or guarantee accuracy
+under occlusion. Recheck automatic tip calibration after refreshing this version.
+Missing or stale
+samples freeze the last pose and show a waiting message. **Test mode** returns
+to the recorded animation. Manually verify palm/back direction, wrist roll,
+left/right and up/down movement, tracking loss, and camera shutdown. Thumb/finger
+tracking for the remaining fingers and simultaneous two-hand mirroring remain
+future milestones.
+
+For the index milestone, use Straight-on view and test a straight finger, a slow
+curl, partial bends, and reopening. Repeat with the palm facing forward, backward,
+and sideways, and with each selected hand. Confirm other fingers stay open and
+the palm remains independent. Try tracking loss, then switch back to Test mode
+and play/restart the existing animation. Exported bone names `Index_1`, `Index_2`,
+and `Index_3` are required; missing bones produce a viewer message.
+
+`src/palmPose.js` converts landmarks into a palm frame and bounded position;
+`npm test` checks the conversion using synthetic palms. Real webcam accuracy,
+especially edge-on palms and occlusion, still requires device testing.
 
 `src/HandViewer.jsx` owns model loading, white display material, room grids,
-lighting, animation, camera controls, and cleanup. `src/App.css` gives the two
-right panels equal shares of the webcam-stage height after the gap. They stack
+lighting, animation, camera controls, and cleanup. `src/App.css` matches the right
+column to the full webcam card, giving extra height only to the viewer. They stack
 below the webcam on narrow screens. Existing webcam tracking is unchanged.
 
 To refine the asset, export over the clean GLB using the same skeleton, bone
@@ -208,6 +279,38 @@ clip. If you change the filename, update `MODEL_URL` in `HandViewer.jsx`. The
 viewer centers/scales the open model automatically and ignores diagnostic
 vertex colors in favor of white. Verify exported bending visually: Blender's
 preserve-volume modifier is not identical to standard glTF skinning.
+
+### Four-finger live milestone
+
+Live mirror now drives Index, Middle, Ring, and Pinky independently using the
+same three-joint bend mapping. Thumb motion and finger spreading remain for a
+later milestone. Each finger calibrates its neutral tip separately for each
+hand; accepted values survive temporary tracking loss until the page reloads
+or calibration is cleared. Hold an open hand still and watch the four progress
+bars. **Recalibrate fingers** resets the currently tracked hand; **Clear
+calibration** resets both hands. Missing finger data holds that finger's pose.
+
+Test each finger curling alone, then curl all four together, reopen, and rotate
+the palm. Repeat with the other hand and after briefly leaving the camera view.
+The model must retain bone names `Index_1` through `Index_3`, and corresponding
+`Middle`, `Ring`, and `Pinky` names. Automated checks cover landmark selection,
+calibration isolation, duplicate samples, and tracking interruption; webcam
+accuracy still needs visual review.
+
+Calibration now saves all three resting joint angles and each finger's natural
+sideways direction within the palm plane. Open your hand comfortably with the
+fingers extended and naturally spaced; they do not need to be parallel or
+vertical. Modest resting/tracker offsets no longer have to pass the old
+15-degree gate. All joints and the sideways reference must remain stable for
+sampling to complete. An open-pose prompt is necessary: stable tracking alone
+cannot prove a person has fully extended their fingers.
+
+After calibration, resting offsets are removed with a continuous range mapping
+that returns to the measured angle at 90 degrees. The base now permits 90
+degrees. Before calibration the existing tip noise suppression is retained.
+The index readout shows measured versus applied base, middle, and tip angles
+to help distinguish tracker estimates from the model targets. Sideways spread
+is used to measure curl but is not yet animated on the model.
 
 ### Original export notes
 

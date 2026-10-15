@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FilesetResolver, HandLandmarker } from '@mediapipe/tasks-vision'
 
 const WASM_URL = 'https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@1.1.0/wasm'
@@ -52,8 +52,14 @@ export function drawHands(canvas, video, hands) {
 
 // Own the model and animation loop for one camera session. All processing is local;
 // network requests download runtime/model assets only, never camera frames.
-export default function useHandTracking(cameraState, videoRef, canvasRef) {
+export default function useHandTracking(cameraState, videoRef, canvasRef, handSampleRef, selectedHand) {
   const [feedback, setFeedback] = useState('Loading hand tracker… This may take a moment on first use.')
+  const selectionRef = useRef(selectedHand)
+  // Selection changes do not reload the model or restart camera permission.
+  useEffect(() => {
+    selectionRef.current = selectedHand
+    handSampleRef.current = null
+  }, [selectedHand, handSampleRef])
   useEffect(() => {
     if (cameraState !== 'on') return
     let disposed = false
@@ -62,6 +68,8 @@ export default function useHandTracking(cameraState, videoRef, canvasRef) {
     let lastVideoTime = -1
     let lastInference = -Infinity
     let lastCount = -1
+    let selectedSide = null
+    let previousSelection = null
     // Defer loading feedback so the effect does not synchronously trigger a render.
     Promise.resolve().then(() => {
       if (!disposed) setFeedback('Loading hand tracker… This may take a moment on first use.')
@@ -81,6 +89,20 @@ export default function useHandTracking(cameraState, videoRef, canvasRef) {
           lastInference = timestamp
           drawHands(canvas, video, result.landmarks)
           const count = result.landmarks.length
+          // Hold onto one handedness while it is present; never silently jump
+          // to the other hand when the selected one leaves the camera.
+          if (previousSelection !== selectionRef.current) {
+            previousSelection = selectionRef.current
+            selectedSide = previousSelection === 'auto' ? null : previousSelection
+          }
+          if (!selectedSide && count) selectedSide = result.handedness[0]?.[0]?.categoryName
+          const index = result.handedness.findIndex(categories => categories[0]?.categoryName === selectedSide)
+          handSampleRef.current = index >= 0 ? {
+            landmarks: result.landmarks[index],
+            worldLandmarks: result.worldLandmarks[index],
+            handedness: selectedSide,
+            timestamp: performance.now(),
+          } : null
           if (count !== lastCount) {
             lastCount = count
             setFeedback(count ? `Tracking ${count} ${count === 1 ? 'hand' : 'hands'}. Letter recognition is coming later.` : 'Tracker ready. Bring one or two hands into view.')
@@ -88,6 +110,7 @@ export default function useHandTracking(cameraState, videoRef, canvasRef) {
         }
         animationId = requestAnimationFrame(tick)
       } catch {
+        handSampleRef.current = null
         setFeedback('Tracking stopped unexpectedly. Turn the camera off and on to retry.')
         canvasRef.current?.getContext('2d')?.clearRect(0, 0, canvasRef.current.width, canvasRef.current.height)
       }
@@ -111,10 +134,11 @@ export default function useHandTracking(cameraState, videoRef, canvasRef) {
     start()
     return () => {
       disposed = true
+      handSampleRef.current = null
       cancelAnimationFrame(animationId)
       model?.close()
     }
-  }, [cameraState, videoRef, canvasRef])
+  }, [cameraState, videoRef, canvasRef, handSampleRef])
   return cameraState === 'on' ? feedback : 'Enable the camera to start hand tracking.'
 }
 

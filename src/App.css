@@ -79,11 +79,12 @@ footer { text-align: center; margin-top: 28px; font-size: 12px; color: #7b909b; 
 .journey-steps li { flex-direction: row; align-items: center; }
 .step-icon { flex: 0 0 30px; width: 30px; height: 30px; }
 
-/* Share the actual camera-stage height with two equal sidebar rows. The top
-   offset matches the practice card padding and its section heading. */
+/* Match the complete webcam card. Preserve the alphabet's former half-stage
+   height and give the viewer all remaining space, including header/footer. */
 .practice-layout { --stage-height: max(600px, calc(100dvh - 300px)); grid-template-columns: minmax(0, 3fr) minmax(340px, 1.35fr); }
 .camera-stage { height: var(--stage-height); min-height: 0; }
-.practice-sidebar { height: var(--stage-height); margin-top: 69px; display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; min-width: 0; }
+.practice-layout { align-items: stretch; }
+.practice-sidebar { align-self: stretch; display: grid; grid-template-rows: minmax(0, 1fr) calc((var(--stage-height) - 16px) / 2); gap: 16px; min-width: 0; }
 .hand-viewer-card { min-height: 0; display: flex; flex-direction: column; padding: 14px; border-radius: 24px; background: #fff; border: 1px solid #e2ebef; box-shadow: 0 12px 45px #3266790c; }
 .viewer-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
 .viewer-heading h2 { font-size: 15px; }
@@ -97,7 +98,30 @@ footer { text-align: center; margin-top: 28px; font-size: 12px; color: #7b909b; 
 .viewer-controls { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
 .viewer-controls button { border: 1px solid #dce8ee; background: #f3f8fb; color: #315970; border-radius: 7px; padding: 4px 7px; font-size: 11px; }
 .viewer-controls button[aria-pressed='true'] { background: #e0f2ef; }
+.viewer-select { display: inline-flex; align-items: center; gap: 4px; color: #315970; font-size: 10px; }
+.viewer-select select { min-width: 0; max-width: 122px; font: inherit; padding: 4px; color: #315970; border: 1px solid #dce8ee; border-radius: 7px; background: #f3f8fb; }
+.tip-diagnostics { display: flex; flex-direction: column; font-size: 10px; line-height: 1.35; color: #526d7c; margin-top: 3px; }
+.hand-viewer-card:has(.tip-diagnostics) .hand-room { min-height: 70px; }
 .viewer-caption { margin-top: 5px; color: #6b8190; font-size: 10px; }
+/* Overlay controls within the room so the rendering surface gains the space
+   previously occupied by controls, diagnostics, and outer padding. */
+.hand-viewer-card { padding: 10px; }
+.hand-viewer-card .viewer-heading { margin-bottom: 6px; }
+.hand-viewer-card .hand-room { min-height: 140px; }
+.hand-viewer-card:has(.tip-diagnostics) .hand-room { min-height: 140px; }
+.hand-render { bottom: 60px; }
+.hand-room .viewer-controls { position: absolute; z-index: 2; bottom: 7px; left: 7px; right: 7px; margin: 0; padding: 5px; max-height: 78px; overflow-y: auto; background: #10243eed; border: 1px solid #b6d1ee38; border-radius: 10px; gap: 4px; }
+.hand-room .viewer-controls button { font-size: 10px; padding: 3px 5px; }
+.hand-room .viewer-select { color: #d7e7fa; }
+.hand-room .viewer-select select { max-width: 112px; padding: 3px; }
+.hand-room .viewer-caption { position: absolute; top: 5px; left: 8px; right: 8px; color: #d0e0f2; font-size: 9px; margin: 0; pointer-events: none; }
+.hand-room .tip-diagnostics { position: absolute; top: 28px; right: 8px; width: 47%; font-size: 9px; color: #d0e0f2; padding: 5px; background: #10243ecf; border-radius: 7px; pointer-events: none; }
+.hand-room .orbit-hint { bottom: 91px; font-size: 8px; }
+.calibration-progress { margin-top: 4px; }
+.calibration-progress-row { display: flex; align-items: center; gap: 5px; margin-top: 4px; }
+.calibration-progress progress { width: 100%; min-width: 0; height: 6px; accent-color: #60d6aa; }
+.calibration-unclear, .calibration-hold-still, .calibration-straighten { color: #ffe2a1; }
+.calibration-ready { color: #a0efd0; }
 /* Compact selection keeps all 26 letters usable within the lower half. */
 .practice-sidebar .alphabet-card { min-height: 0; padding: 13px 16px; border-radius: 24px; overflow-y: auto; }
 .practice-sidebar .panel-kicker { font-size: 9px; }

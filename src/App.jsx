@@ -13,10 +13,13 @@ export default function App() {
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
   const mountedRef = useRef(false)
+  // A shared ref passes frequent tracking samples without rerendering the page.
+  const handSampleRef = useRef(null)
   const [cameraState, setCameraState] = useState('off')
   const [cameraError, setCameraError] = useState('')
   const [selectedLetter, setSelectedLetter] = useState('A')
-  const trackingFeedback = useHandTracking(cameraState, videoRef, canvasRef)
+  const [selectedHand, setSelectedHand] = useState('auto')
+  const trackingFeedback = useHandTracking(cameraState, videoRef, canvasRef, handSampleRef, selectedHand)
 
   // Release every camera track when the page component leaves the screen.
   // The mounted flag also handles permission requests resolved after leaving.
@@ -119,7 +122,7 @@ export default function App() {
         </section>
 
         <div className="practice-sidebar">
-        <HandViewer />
+        <HandViewer handSampleRef={handSampleRef} cameraState={cameraState} selectedHand={selectedHand} onSelectHand={setSelectedHand} />
         <aside className="alphabet-card" aria-labelledby="alphabet-title">
           <span className="panel-kicker">ONE LETTER AT A TIME</span>
           <h2 id="alphabet-title">Meet the alphabet</h2>

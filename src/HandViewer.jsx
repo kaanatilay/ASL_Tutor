@@ -2,6 +2,10 @@ import { useEffect, useRef, useState } from 'react'
 import * as THREE from 'three'
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js'
+import { getPalmPose } from './palmPose'
+import { getFingerAngles, getFingerReference, TRACKED_FINGERS, mapFingerBends } from './indexFingerPose'
+import { getCalibrationFeedback } from './calibrationFeedback'
+import { createFingerCalibration, advanceFingerCalibration, cancelFingerCollections } from './fingerCalibration'
 
 // Replace this asset to refine the hand while preserving its rig and animation.
 const MODEL_URL = `${import.meta.env.BASE_URL}models/ASLTutor_hand_model_clean.glb`
@@ -42,14 +46,25 @@ function addRoom(scene) {
   scene.add(new THREE.LineSegments(geometry, material))
 }
 
-export default function HandViewer() {
+export default function HandViewer({ handSampleRef, cameraState, selectedHand, onSelectHand }) {
   const hostRef = useRef(null)
   const apiRef = useRef(null)
   const playingRef = useRef(false)
+  const modeRef = useRef('test')
+  const cameraOnRef = useRef(false)
+  const fingerCalibrationRef = useRef(createFingerCalibration())
+  const [calibrating, setCalibrating] = useState(false)
+  const [tipInfo, setTipInfo] = useState(null)
+  const [calibrationFeedback, setCalibrationFeedback] = useState({ state: 'waiting', progress: 0, message: 'Enable the camera to begin.' })
+  const [mode, setMode] = useState('test')
+  const [view, setView] = useState('room')
+  const [liveMessage, setLiveMessage] = useState('Enable the camera to mirror your palm.')
   const [playing, setPlaying] = useState(false)
   const [status, setStatus] = useState('Loading your hand model…')
   const [ready, setReady] = useState(false)
   const [failed, setFailed] = useState(false)
+
+  useEffect(() => { cameraOnRef.current = cameraState === 'on' }, [cameraState])
 
   // Keep the Three.js lifecycle inside this component; camera tracking is separate.
   useEffect(() => {
@@ -69,7 +84,18 @@ export default function HandViewer() {
     let disposed = false
     let mixer
     let model
+    let placement
+    let openSize
+    let appliedMode = 'test'
+    let previousLiveMessage = ''
+    let fingerJoints = {}
+    let activeHand = 'Left'
+    const bendAxis = new THREE.Vector3(1, 0, 0)
+    let currentView = 'room'
     let lastTime
+    let lastTipReadout = -Infinity
+    let lastFeedbackTime = -Infinity
+    let lastFeedbackKey = ''
     const scene = new THREE.Scene()
     scene.background = new THREE.Color('#142943')
     const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 80)
@@ -95,14 +121,26 @@ export default function HandViewer() {
     const resize = () => {
       const { width, height } = host.getBoundingClientRect()
       camera.aspect = Math.max(width, 1) / Math.max(height, 1)
+      // Off-axis framing keeps the hand in its left slot while the straight-on
+      // camera faces the hand directly, removing the previous downward bias.
+      camera.clearViewOffset()
+      if (currentView === 'straight') camera.setViewOffset(Math.max(width, 1), Math.max(height, 1), width * 0.22, 0, Math.max(width, 1), Math.max(height, 1))
       camera.updateProjectionMatrix()
       renderer.setSize(Math.max(width, 1), Math.max(height, 1))
     }
     const observer = new ResizeObserver(resize)
     observer.observe(host)
     resize()
+    const applyView = next => {
+      currentView = next
+      controls.target.set(next === 'straight' ? -1.65 : 0, next === 'straight' ? 2.35 : 2, 0)
+      camera.position.set(next === 'straight' ? -1.65 : 0, next === 'straight' ? 2.35 : 3.7, 8.5)
+      controls.update()
+      resize()
+    }
     apiRef.current = {
-      reset: () => controls.reset(),
+      reset: () => applyView(currentView),
+      view: applyView,
       zoom: factor => {
         const offset = camera.position.clone().sub(controls.target)
         offset.setLength(THREE.MathUtils.clamp(offset.length() * factor, 5, 19))
@@ -110,6 +148,8 @@ export default function HandViewer() {
         controls.update()
       },
       restart: () => { mixer?.setTime(0) },
+      // Stop the clip at its first frame before live tracking takes control.
+      open: () => { mixer?.setTime(0) },
     }
 
     new GLTFLoader().load(MODEL_URL, gltf => {
@@ -135,7 +175,8 @@ export default function HandViewer() {
         const size = bounds.getSize(new THREE.Vector3())
         const center = bounds.getCenter(new THREE.Vector3())
         const scale = 4.1 / Math.max(size.y, 0.001)
-        const placement = new THREE.Group()
+        openSize = size.clone().multiplyScalar(scale)
+        placement = new THREE.Group()
         placement.scale.setScalar(scale)
         orientation.position.copy(center).multiplyScalar(-1)
         placement.add(orientation)
@@ -146,6 +187,13 @@ export default function HandViewer() {
           mixer.clipAction(gltf.animations[0]).play()
           mixer.setTime(0)
         }
+        // Store the authored rest rotations. Apply curl relative to each bone's
+        // local X axis, matching the Blender rig, without overwriting its roll.
+        fingerJoints = Object.fromEntries(TRACKED_FINGERS.map(finger => [finger,
+          [1, 2, 3].map(joint => {
+            const bone = model.getObjectByName(`${finger}_${joint}`)
+            return bone?.isBone ? { bone, rest: bone.quaternion.clone() } : null
+          })]))
         setReady(true)
         setStatus(gltf.animations.length ? 'Model ready. Play the finger test.' : 'Model ready. No test animation was included.')
       } catch {
@@ -162,7 +210,97 @@ export default function HandViewer() {
     renderer.setAnimationLoop(time => {
       const delta = lastTime === undefined ? 0 : Math.min((time - lastTime) / 1000, 0.05)
       lastTime = time
-      if (playingRef.current) mixer?.update(delta)
+      const live = modeRef.current === 'live'
+      if (placement && appliedMode !== modeRef.current) {
+        mixer?.setTime(0)
+        placement.quaternion.identity()
+        placement.scale.set(Math.abs(placement.scale.x), placement.scale.y, placement.scale.z)
+        placement.position.set(-1.65, 2.35, 0)
+        appliedMode = modeRef.current
+      }
+      if (!live && playingRef.current) mixer?.update(delta)
+      if (live && placement) {
+        const sample = handSampleRef.current
+        const fresh = cameraOnRef.current && sample && performance.now() - sample.timestamp < 400
+        const pose = fresh ? getPalmPose(sample) : null
+        const feedbackAngles = {}
+        let message = cameraOnRef.current ? 'Waiting for a clear selected palm. Holding the last pose.' : 'Enable the camera to mirror your palm.'
+        if (!pose && performance.now() - lastTipReadout >= 250) {
+          lastTipReadout = performance.now()
+          setTipInfo(null)
+        }
+        if (pose) {
+          const blend = 1 - Math.exp(-delta * 10)
+          placement.quaternion.slerp(pose.rotation, blend)
+          const scale = Math.abs(placement.scale.x)
+          placement.scale.x = pose.side * scale
+          // Keep the rotated open hand inside its left slot. Estimate horizontal
+          // extent from the rest bounds without rescanning every mesh vertex.
+          const matrix = new THREE.Matrix4().makeRotationFromQuaternion(placement.quaternion).elements
+          const extent = (Math.abs(matrix[0]) * openSize.x + Math.abs(matrix[4]) * openSize.y + Math.abs(matrix[8]) * openSize.z) / 2
+          pose.position.x = THREE.MathUtils.clamp(pose.position.x, -5.5 + extent, -0.15 - extent)
+          placement.position.lerp(pose.position, blend)
+          activeHand = sample.handedness
+          const now = performance.now()
+          const fingerBlend = 1 - Math.exp(-delta * 14)
+          const tracked = []
+          // Each finger owns its calibration and bone targets. An unclear
+          // finger holds its pose without blocking the other three fingers.
+          for (const finger of TRACKED_FINGERS) {
+            const joints = fingerJoints[finger]
+            const calibration = fingerCalibrationRef.current[activeHand][finger]
+            const reference = getFingerReference(sample, pose.rotation, finger)
+            const angles = joints?.every(Boolean) ? getFingerAngles(sample, pose.rotation, finger, calibration.reference ?? reference) : null
+            feedbackAngles[finger] = angles
+            advanceFingerCalibration(calibration, { angles, reference, timestamp: sample.timestamp, now })
+            const bends = mapFingerBends(angles, calibration.neutral)
+            if (bends) {
+              tracked.push(finger)
+              joints.forEach(({ bone, rest }, i) => {
+                const target = rest.clone().multiply(new THREE.Quaternion().setFromAxisAngle(bendAxis, bends[i]))
+                bone.quaternion.slerp(target, fingerBlend)
+              })
+            }
+            if (finger === 'Index' && now - lastTipReadout >= 250) {
+              lastTipReadout = now
+              setTipInfo(bends ? {
+                estimated: Math.round(THREE.MathUtils.radToDeg(angles[2])), corrected: Math.round(THREE.MathUtils.radToDeg(bends[2])),
+                base: Math.round(THREE.MathUtils.radToDeg(angles[0])), baseTarget: Math.round(THREE.MathUtils.radToDeg(bends[0])),
+                middle3D: Math.round(Math.abs(THREE.MathUtils.radToDeg(angles[1]))), middleTarget: Math.round(THREE.MathUtils.radToDeg(bends[1])),
+              } : null)
+            }
+          }
+          message = `Live ${activeHand.toLowerCase()} palm + ${tracked.length}/4 fingers · Thumb stays open`
+
+        }
+        // Lost or stale tracking freezes the model; update text only on change.
+        if (message !== previousLiveMessage) {
+          previousLiveMessage = message
+          setLiveMessage(message)
+        }
+        // Throttle visual feedback independently of 3D rendering and announce
+        // instructions only when they change, not for every tracking sample.
+        if (performance.now() - lastFeedbackTime >= 100) {
+          lastFeedbackTime = performance.now()
+          const fingers = TRACKED_FINGERS.map(finger => {
+            const state = fingerCalibrationRef.current[activeHand][finger]
+            // Cancel unfinished samples on tracking loss, retaining accepted neutrals.
+            if (!pose) advanceFingerCalibration(state, { angles: null, now: lastFeedbackTime })
+            return { finger, ...getCalibrationFeedback({
+              cameraOn: cameraOnRef.current, angles: feedbackAngles[finger],
+              request: state.request, calibrated: state.neutral != null,
+              now: lastFeedbackTime, retryUntil: state.retryUntil, retryReason: state.retryReason,
+              finger: finger.toLowerCase(),
+            }) }
+          })
+          const pending = fingers.find(finger => finger.state !== 'ready')
+          const feedback = { state: pending?.state ?? 'ready',
+            message: pending?.message ?? 'All four fingers calibrated. Try curling and reopening.', fingers }
+          setCalibrating(Object.values(fingerCalibrationRef.current[activeHand]).some(state => state.request))
+          const key = JSON.stringify(feedback)
+          if (key !== lastFeedbackKey) { lastFeedbackKey = key; setCalibrationFeedback(feedback) }
+        }
+      }
       controls.update()
       renderer.render(scene, camera)
     })
@@ -178,28 +316,81 @@ export default function HandViewer() {
       renderer.dispose()
       renderer.domElement.remove()
     }
-  }, [])
+  }, [handSampleRef])
+
+  function changeMode(nextMode) {
+    cancelFingerCollections(fingerCalibrationRef.current)
+    setCalibrating(false)
+    playingRef.current = false
+    setPlaying(false)
+    modeRef.current = nextMode
+    setMode(nextMode)
+    apiRef.current?.open()
+    if (nextMode === 'live') {
+      setView('straight')
+      apiRef.current?.view('straight')
+    }
+  }
 
   function togglePlayback() {
     playingRef.current = !playingRef.current
     setPlaying(playingRef.current)
   }
 
+  // Recalibrate only the currently tracked hand; the other hand keeps its reference.
+  function calibrateFingers() {
+    const sample = handSampleRef.current
+    if (!sample || performance.now() - sample.timestamp > 400) return
+    fingerCalibrationRef.current[sample.handedness] = createFingerCalibration()[sample.handedness]
+  }
+
   return <section className="hand-viewer-card" aria-labelledby="hand-viewer-title">
-    <div className="viewer-heading"><h2 id="hand-viewer-title">Your hand in 3D</h2><span>Model preview</span></div>
+    <div className="viewer-heading"><h2 id="hand-viewer-title">Your hand in 3D</h2><span>{mode === 'live' ? 'Live palm' : 'Model preview'}</span></div>
     <div className="hand-room">
       <div className="hand-render" ref={hostRef} />
       {!ready && <p className="viewer-message" role={failed ? 'alert' : 'status'}>{status}</p>}
       {ready && <span className="second-hand-space">Room for hand two</span>}
       <span className="orbit-hint">Drag to orbit · Scroll to zoom</span>
-    </div>
     <div className="viewer-controls" aria-label="3D preview controls">
-      <button disabled={!ready || failed} aria-pressed={playing} onClick={togglePlayback}>{playing ? 'Pause' : 'Play test'}</button>
-      <button disabled={!ready || failed} onClick={() => apiRef.current?.restart()}>Restart</button>
+      <button disabled={!ready || failed} aria-pressed={mode === 'live'} onClick={() => changeMode(mode === 'live' ? 'test' : 'live')}>{mode === 'live' ? 'Test mode' : 'Live mirror'}</button>
+      {mode === 'test' && <button disabled={!ready || failed} aria-pressed={playing} onClick={togglePlayback}>{playing ? 'Pause' : 'Play test'}</button>}
+      {mode === 'test' && <button disabled={!ready || failed} onClick={() => apiRef.current?.restart()}>Restart</button>}
       <button aria-label="Zoom in" disabled={!ready || failed} onClick={() => apiRef.current?.zoom(0.85)}>+</button>
       <button aria-label="Zoom out" disabled={!ready || failed} onClick={() => apiRef.current?.zoom(1.15)}>−</button>
       <button onClick={() => apiRef.current?.reset()} disabled={!ready || failed}>Reset view</button>
+      <label className="viewer-select">View <select value={view} disabled={!ready || failed} onChange={event => {
+        setView(event.target.value)
+        apiRef.current?.view(event.target.value)
+      }}><option value="straight">Straight-on</option><option value="room">Room angle</option></select></label>
+      {mode === 'live' && <label className="viewer-select">Hand <select value={selectedHand} onChange={event => {
+        cancelFingerCollections(fingerCalibrationRef.current)
+        setCalibrating(false)
+        setTipInfo(null)
+        onSelectHand(event.target.value)
+      }}>
+        <option value="auto">Auto (first hand)</option><option value="Left">Left</option><option value="Right">Right</option>
+      </select></label>}
+      {mode === 'live' && <button disabled={!ready || cameraState !== 'on' || calibrating} onClick={calibrateFingers}>{calibrating ? 'Sampling…' : 'Recalibrate fingers'}</button>}
+      {mode === 'live' && <button onClick={() => {
+        fingerCalibrationRef.current = createFingerCalibration()
+        setCalibrating(false)
+      }}>Clear calibration</button>}
     </div>
-    <p className="viewer-caption">Finger test only · Live mirroring comes next</p>
+    <p className="viewer-caption" role="status">{mode === 'live' ? liveMessage : 'Finger test · Switch to Live mirror to follow your palm'}</p>
+    {mode === 'live' && <div className="tip-diagnostics">
+      <span>Open your hand comfortably. Keep fingers extended with natural spacing.</span>
+      {cameraState === 'on' && tipInfo && <span>Index base: measured {tipInfo.base}° → target {tipInfo.baseTarget}°</span>}
+      {cameraState === 'on' && tipInfo && <span>Index middle: 3D {tipInfo.middle3D}° → target {tipInfo.middleTarget}°</span>}
+      <span>{cameraState === 'on' && tipInfo ? `Index tip: measured ${tipInfo.estimated}° → target ${tipInfo.corrected}°` : 'Index tip: waiting for tracking'}</span>
+      <div className={`calibration-progress calibration-${calibrationFeedback.state}`}>
+        <span role="status">{calibrationFeedback.message}</span>
+        {calibrationFeedback.fingers?.map(finger => <div className="calibration-progress-row" key={finger.finger}>
+          <span>{finger.finger}</span>
+          <progress aria-label={`${finger.finger} calibration sample progress`} max="100" value={finger.progress} />
+          <span>{finger.progress}%</span>
+        </div>)}
+      </div>
+    </div>}
+    </div>
   </section>
 }
