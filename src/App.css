@@ -1,0 +1,80 @@
+/* The desktop practice area reserves approximately one quarter for letter selection. */
+/* Use nearly the full window width while keeping a small breathing margin. */
+.homepage { width: 100%; margin: auto; padding: 28px clamp(16px, 2vw, 32px) 20px; }
+.brand { display: inline-flex; align-items: center; color: #233f53; font-size: 24px; font-weight: 800; text-decoration: none; letter-spacing: -1px; }
+.brand span:first-child { font-weight: 500; }
+.brand-dot { width: 9px; height: 9px; border-radius: 50%; background: #51bea6; margin-left: 8px; }
+.eyebrow { margin-top: 18px; font-size: 12px; font-weight: 700; letter-spacing: 1.8px; text-transform: uppercase; color: #427b80; }
+h1 { margin-top: 12px; font-size: clamp(32px, 3.4vw, 46px); line-height: 1.08; letter-spacing: -2.5px; }
+h1 span { color: #318990; }
+.intro { color: #617888; max-width: 580px; margin-top: 12px; font-size: 16px; }
+.practice-layout { display: grid; grid-template-columns: minmax(0, 3fr) minmax(250px, 1fr); gap: 20px; margin-top: 24px; align-items: start; }
+.practice-card, .alphabet-card { background: #ffffffc9; border: 1px solid white; border-radius: 28px; box-shadow: 0 12px 45px #3266790c, inset 0 0 0 1px #e7eef180; padding: 22px; }
+.section-heading { display: flex; justify-content: space-between; align-items: center; gap: 12px; margin-bottom: 18px; }
+h2 { font-size: 18px; letter-spacing: -.4px; }
+.status { display: flex; align-items: center; gap: 7px; color: #667f8d; font-size: 12px; }
+.status i { width: 7px; height: 7px; border-radius: 50%; background: #acbac3; }
+.status .live-dot { background: #27866d; }
+/* A frosted feedback strip overlays the preview without modifying camera frames. */
+.camera-stage { min-height: max(600px, calc(100dvh - 300px)); position: relative; overflow: hidden; border-radius: 20px; background: radial-gradient(ellipse at 15% 15%, #e2f5ef, transparent 60%), linear-gradient(130deg, #edf5fb, #e6eff7); display: flex; flex-direction: column; }
+.camera-prompt { text-align: center; padding: 42px 22px 130px; margin: auto; width: 100%; }
+.camera-icon { display: grid; place-items: center; width: 70px; height: 70px; margin: 0 auto 22px; background: #ffffffb3; border: 1px solid white; border-radius: 23px; box-shadow: 0 10px 25px #507e9510; color: #348c93; transform: rotate(-6deg); }
+.camera-icon svg { width: 34px; }
+.prompt-kicker, .panel-kicker { font-size: 10px; font-weight: 750; letter-spacing: 1.5px; color: #487d87; }
+h3 { font-family: 'Trebuchet MS', 'Segoe UI', sans-serif; font-size: clamp(24px, 3vw, 34px); letter-spacing: -1px; margin-top: 8px; }
+.camera-prompt > p { font-size: 14px; color: #637d8e; margin-top: 10px; }
+.primary-button { display: inline-flex; align-items: center; justify-content: center; gap: 10px; margin-top: 24px; border: 1px solid #ffffff60; border-radius: 15px; padding: 12px 22px; color: white; font-weight: 650; background: linear-gradient(120deg, #347ba9, #2c9893); box-shadow: 0 7px 20px #35889125; }
+.primary-button:hover { box-shadow: 0 7px 25px #35889145; }
+.primary-button svg { width: 20px; height: 20px; }
+.camera-prompt .camera-error { color: #9d3545; max-width: 450px; margin: 16px auto 0; }
+.feedback-panel { position: absolute; bottom: 16px; left: 16px; right: 16px; display: flex; gap: 14px; align-items: center; padding: 16px; border: 1px solid #ffffffd9; background: #ffffffdf; backdrop-filter: blur(16px); border-radius: 16px; color: #294a5c; }
+.feedback-spark { font-size: 30px; color: #36988b; }
+.feedback-panel strong { font-size: 13px; }
+.feedback-panel p { font-size: 12px; color: #617888; margin-top: 3px; }
+.privacy-note { font-size: 11px; color: #657e8b; margin-top: 15px; text-align: center; }
+.privacy-note span { color: #348c7a; margin-right: 5px; }
+.camera-active { background: #152732; }
+.camera-stage video { position: absolute; width: 100%; height: 100%; object-fit: contain; object-position: center; transform: scaleX(-1); }
+.stop-button { position: absolute; top: 16px; right: 16px; border: 1px solid #ffffff90; border-radius: 12px; padding: 7px 12px; background: #fffffff0; color: #294a5c; font-size: 12px; }
+/* Alphabet selection is interface state only; no recognition is performed yet. */
+.alphabet-card { padding: 25px 20px; }
+.alphabet-card h2 { margin-top: 8px; font-size: 21px; }
+.alphabet-card > p { font-size: 13px; color: #687f8d; margin-top: 5px; }
+.selected-letter { display: flex; flex-direction: column; align-items: center; background: linear-gradient(135deg, #eef7ff, #ecf8f3); border: 1px solid #e2efef; border-radius: 19px; padding: 15px; margin: 22px 0; }
+.selected-letter span { color: #31858d; font-size: 64px; line-height: 1.25; font-weight: 650; }
+.selected-letter small { color: #5f7c88; font-size: 11px; }
+.alphabet-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 7px; }
+.letter { padding: 8px 0; border: 1px solid #e7eff3; border-radius: 11px; background: #f8fbfd; color: #476476; font-size: 14px; font-weight: 600; }
+.letter:hover { background: #e8f4f4; }
+.letter.selected { color: white; background: #348e99; border-color: #348e99; box-shadow: 0 4px 10px #348e9926; }
+.alphabet-card .alphabet-note { margin-top: 24px; font-size: 11px; line-height: 1.8; }
+footer { text-align: center; margin-top: 28px; font-size: 12px; color: #7b909b; }
+/* Stack panels on smaller screens so the camera retains a useful viewing width. */
+@media (max-width: 850px) { .camera-stage { min-height: 475px; } .practice-layout { grid-template-columns: 1fr; } .alphabet-grid { grid-template-columns: repeat(7, 1fr); } .selected-letter { margin: 15px 0; } }
+@media (max-width: 480px) { .homepage { padding: 24px 16px; } .practice-card, .alphabet-card { padding: 16px; border-radius: 22px; } .camera-stage { min-height: 460px; } .camera-prompt { padding: 35px 14px 135px; } .prompt-kicker { font-size: 9px; } .feedback-panel { left: 10px; right: 10px; bottom: 10px; padding: 12px; } .section-heading h2 { font-size: 16px; } h1 { letter-spacing: -1.5px; } }
+
+
+/* Mirror the overlay exactly like the video, while letting controls receive clicks. */
+.hand-overlay { position: absolute; inset: 0; width: 100%; height: 100%; transform: scaleX(-1); pointer-events: none; }
+
+
+
+/* The horizontal header keeps the introduction readable without taking a tall row. */
+.header-content { display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); gap: 32px; align-items: center; margin-top: 16px; }
+.header-hook .eyebrow { margin-top: 0; }
+.header-hook h1 { font-size: clamp(30px, 2.6vw, 42px); line-height: 1.2; letter-spacing: -1.5px; margin-top: 8px; }
+.header-hook h1 span { display: inline-block; }
+.journey-guide .intro { margin-top: 0; font-size: 14px; }
+.journey-steps { display: flex; gap: 20px; list-style: none; padding: 0; margin: 12px 0 0; }
+.journey-steps li { display: flex; align-items: center; gap: 8px; font-size: 12px; color: #476b7d; }
+.step-icon { display: grid; place-items: center; flex: 0 0 34px; height: 34px; border: 1px solid #d9eeed; border-radius: 11px; background: linear-gradient(135deg, #e8f4ff, #e4f6ed); color: #318990; font-size: 25px; }
+.step-icon svg { width: 20px; height: 20px; }
+.letter-icon { font-size: 17px; font-weight: 750; }
+@media (max-width: 1050px) { .journey-steps { gap: 12px; } .journey-steps li { flex-direction: column; align-items: flex-start; } .step-icon { flex-basis: auto; width: 34px; } }
+@media (max-width: 850px) { .header-content { grid-template-columns: 1fr; gap: 16px; } .journey-steps li { flex-direction: row; align-items: center; } }
+@media (max-width: 480px) { .journey-steps { justify-content: space-between; gap: 8px; } .journey-steps li { flex-direction: column; align-items: flex-start; font-size: 11px; } }
+
+/* Stack the guide steps while keeping each icon beside its label at all widths. */
+.journey-steps { flex-direction: column; gap: 8px; }
+.journey-steps li { flex-direction: row; align-items: center; }
+.step-icon { flex: 0 0 30px; width: 30px; height: 30px; }

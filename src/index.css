@@ -1,0 +1,10 @@
+/* Global defaults use local fonts, keeping the interface independent of font services. */
+:root { font-family: 'Segoe UI', system-ui, sans-serif; color: #243d50; background: #f7fbfc; line-height: 1.6; font-synthesis: none; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; background: radial-gradient(ellipse at 5% 35%, #dff6ef80, transparent 45%), radial-gradient(ellipse at 95% 5%, #e0eeff99, transparent 45%), #f9fcfd; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { font: inherit; cursor: pointer; }
+button:disabled { cursor: wait; opacity: .7; }
+button:focus-visible, a:focus-visible { outline: 3px solid #246fbd; outline-offset: 4px; }
+button { transition: background .2s, box-shadow .2s; }
+h1, h2, h3, p { margin: 0; }
