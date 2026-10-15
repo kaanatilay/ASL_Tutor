@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import useHandTracking from './useHandTracking'
+import HandViewer from './HandViewer'
 
 // A small vector camera icon stays crisp without loading an external image.
 function CameraIcon() {
@@ -117,6 +118,8 @@ export default function App() {
           <p className="privacy-note"><span aria-hidden="true">◉</span> Live preview only. Nothing is recorded, saved, or uploaded. No microphone access.</p>
         </section>
 
+        <div className="practice-sidebar">
+        <HandViewer />
         <aside className="alphabet-card" aria-labelledby="alphabet-title">
           <span className="panel-kicker">ONE LETTER AT A TIME</span>
           <h2 id="alphabet-title">Meet the alphabet</h2>
@@ -127,6 +130,7 @@ export default function App() {
           </div>
           <p className="alphabet-note">Every connection starts somewhere.<br />Let's start here.</p>
         </aside>
+        </div>
       </div>
       <footer>Take your time. Make it your own.</footer>
     </main>

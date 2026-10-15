@@ -78,3 +78,42 @@ footer { text-align: center; margin-top: 28px; font-size: 12px; color: #7b909b; 
 .journey-steps { flex-direction: column; gap: 8px; }
 .journey-steps li { flex-direction: row; align-items: center; }
 .step-icon { flex: 0 0 30px; width: 30px; height: 30px; }
+
+/* Share the actual camera-stage height with two equal sidebar rows. The top
+   offset matches the practice card padding and its section heading. */
+.practice-layout { --stage-height: max(600px, calc(100dvh - 300px)); grid-template-columns: minmax(0, 3fr) minmax(340px, 1.35fr); }
+.camera-stage { height: var(--stage-height); min-height: 0; }
+.practice-sidebar { height: var(--stage-height); margin-top: 69px; display: grid; grid-template-rows: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; min-width: 0; }
+.hand-viewer-card { min-height: 0; display: flex; flex-direction: column; padding: 14px; border-radius: 24px; background: #fff; border: 1px solid #e2ebef; box-shadow: 0 12px 45px #3266790c; }
+.viewer-heading { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 10px; }
+.viewer-heading h2 { font-size: 15px; }
+.viewer-heading > span { font-size: 10px; color: #627c8d; }
+.hand-room { flex: 1; min-height: 100px; position: relative; overflow: hidden; border-radius: 14px; background: #142943; }
+.hand-render { position: absolute; inset: 0; }
+.hand-render canvas { display: block; width: 100%; height: 100%; touch-action: none; }
+.viewer-message { position: absolute; inset: 0; display: grid; place-content: center; padding: 20px; color: #e7f2ff; font-size: 12px; text-align: center; pointer-events: none; }
+.second-hand-space { position: absolute; left: 57%; top: 46%; width: 40%; font-size: 10px; text-align: center; color: #c5d8ed80; pointer-events: none; }
+.orbit-hint { position: absolute; left: 10px; bottom: 7px; color: #cfdeefb3; font-size: 9px; pointer-events: none; }
+.viewer-controls { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 9px; }
+.viewer-controls button { border: 1px solid #dce8ee; background: #f3f8fb; color: #315970; border-radius: 7px; padding: 4px 7px; font-size: 11px; }
+.viewer-controls button[aria-pressed='true'] { background: #e0f2ef; }
+.viewer-caption { margin-top: 5px; color: #6b8190; font-size: 10px; }
+/* Compact selection keeps all 26 letters usable within the lower half. */
+.practice-sidebar .alphabet-card { min-height: 0; padding: 13px 16px; border-radius: 24px; overflow-y: auto; }
+.practice-sidebar .panel-kicker { font-size: 9px; }
+.practice-sidebar .alphabet-card h2 { font-size: 17px; margin-top: 0; }
+.practice-sidebar .alphabet-card > p { font-size: 11px; margin-top: 0; }
+.practice-sidebar .selected-letter { flex-direction: row; justify-content: center; gap: 12px; margin: 7px 0; padding: 3px 10px; border-radius: 10px; }
+.practice-sidebar .selected-letter span { font-size: 25px; }
+.practice-sidebar .alphabet-grid { grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 5px; }
+.practice-sidebar .letter { padding: 3px 0; font-size: 12px; border-radius: 7px; }
+.practice-sidebar .alphabet-note { display: none; }
+@media (max-width: 850px) {
+  .practice-layout { --stage-height: 475px; grid-template-columns: 1fr; }
+  .practice-sidebar { margin-top: 0; height: auto; grid-template-rows: 340px auto; }
+  .practice-sidebar .alphabet-card { min-height: 260px; }
+}
+@media (max-width: 480px) {
+  .practice-layout { --stage-height: 460px; }
+  .practice-sidebar { grid-template-rows: 330px auto; }
+}
