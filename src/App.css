@@ -122,6 +122,18 @@ footer { text-align: center; margin-top: 28px; font-size: 12px; color: #7b909b; 
 .calibration-progress progress { width: 100%; min-width: 0; height: 6px; accent-color: #60d6aa; }
 .calibration-unclear, .calibration-hold-still, .calibration-straighten { color: #ffe2a1; }
 .calibration-ready { color: #a0efd0; }
+/* Identification is separate from calibration and never claims joint accuracy. */
+.hand-identification { position: absolute; left: 8px; right: 8px; bottom: 94px; display: flex; flex-wrap: wrap; gap: 4px 12px; padding: 4px 6px; border-radius: 6px; background: #10243ed9; color: #a0efd0; font-size: 9px; pointer-events: none; }
+.hand-identification strong, .hand-identification .hand-uncertain { color: #ffe2a1; }
+/* Slide only the details away; the arrow and independent tracking warnings
+   remain accessible. A manual reopen is preserved after calibration finishes. */
+.calibration-drawer { position: absolute; z-index: 3; top: 28px; bottom: 110px; right: 8px; width: 47%; transition: transform 240ms ease; pointer-events: none; }
+.calibration-drawer.is-collapsed { transform: translateX(calc(100% + 8px)); }
+.hand-room .calibration-drawer .tip-diagnostics { position: relative; top: auto; right: auto; width: 100%; margin: 0; max-height: 100%; overflow-y: auto; pointer-events: auto; }
+.calibration-drawer-toggle { position: absolute; left: -24px; top: 0; width: 24px; height: 34px; border: 1px solid #b6d1ee60; border-radius: 8px 0 0 8px; color: #e6f1ff; background: #10243ef5; font-size: 25px; line-height: 1; cursor: pointer; pointer-events: auto; }
+.calibration-drawer-toggle:focus-visible { outline: 2px solid #60d6aa; outline-offset: -3px; }
+@media (prefers-reduced-motion: reduce) { .calibration-drawer { transition: none; } }
+.tracking-warning { background: #fff3ddeb; border-color: #f2cc86; }
 /* Compact selection keeps all 26 letters usable within the lower half. */
 .practice-sidebar .alphabet-card { min-height: 0; padding: 13px 16px; border-radius: 24px; overflow-y: auto; }
 .practice-sidebar .panel-kicker { font-size: 9px; }

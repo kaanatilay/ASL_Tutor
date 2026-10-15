@@ -339,7 +339,7 @@ exported bone rotations/hierarchy, stable sampling, lost data, and joint limits.
 Real-camera accuracy and skin deformation still need visual review. The model
 keeps its authored proportions, so exact fingertip contact is not guaranteed.
 All segment movement uses direction swings; axial thumb twist is not reconstructed
-from these landmarks. Two simultaneous model hands remain a later milestone.
+from these landmarks. See the two-hand milestone below for simultaneous display.
 
 Open-thumb calibration now stores all three segment directions, with a stability
 check for each. Refresh and recalibrate after this change. **Thumb skeleton**
@@ -385,6 +385,40 @@ Slowly fold toward the ring-finger base, reopen, and repeat on both hands.
 Check for reach improvement, root jitter, and stretching around the thumb pad.
 Move/rotate the whole hand while holding the thumb steady, then leave/reenter
 view. Root movement is approximate and remains subject to webcam review.
+
+### Two-hand live milestone
+
+**Auto (both hands)** shows a model for each reliably detected side. Each model
+has its own scene, skinned skeleton, animation mixer, finger calibration, and
+thumb calibration. One hand uses the current single-hand framing; two hands
+occupy separate halves of the same viewer. The shared buttons control both
+views; dragging orbits the individual half. The room grids are rendered per
+half rather than representing a shared space for hand-to-hand contact.
+
+`src/handPresence.js` gates samples using valid 21-point image/world landmarks,
+MediaPipe's handedness classification score, and freshness. A hand appears after
+three detections scoring at least 0.80. A recently tracked hand can continue at
+0.65 to reduce flicker. Below that threshold (or with invalid/ambiguous data),
+the pose holds for up to 700 ms, then disappears. Held samples never update
+calibration. Scores indicate left/right identification, not per-joint accuracy.
+High-confidence classification mistakes can still occur during overlap, so
+crossing/occlusion behavior needs real-camera review.
+
+Status text shows each side's identification score, tracked/holding/missing
+state, and calibrated count out of five. Amber prompts request clear separated
+hands when identification is uncertain. Existing progress bars show the focused
+hand (Left first in Auto, otherwise the sole visible side). The explicit Left
+or Right selector isolates that hand for detailed review/recalibration. Both
+hands calibrate independently while visible in Auto. Temporary loss preserves
+accepted references; page reload or Clear calibration resets them.
+
+Test one hand, add the other, curl different fingers simultaneously, then remove
+each hand in turn. Confirm a brief dropout holds and a longer absence hides only
+the missing model. Return each hand and check its calibration persists. Test
+overlap, crossing, sideways turns, camera off/on, and the exported Test animation.
+Automated presence tests cover independent entry/exit, score hysteresis, invalid
+data, duplicate labels, stale inference, and reacquisition. Webcam behavior and
+two-renderer performance still require device testing.
 
 ### Original export notes
 

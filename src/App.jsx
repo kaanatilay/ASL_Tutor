@@ -19,7 +19,7 @@ export default function App() {
   const [cameraError, setCameraError] = useState('')
   const [selectedLetter, setSelectedLetter] = useState('A')
   const [selectedHand, setSelectedHand] = useState('auto')
-  const trackingFeedback = useHandTracking(cameraState, videoRef, canvasRef, handSampleRef, selectedHand)
+  const { feedback: trackingFeedback, handStatus } = useHandTracking(cameraState, videoRef, canvasRef, handSampleRef)
 
   // Release every camera track when the page component leaves the screen.
   // The mounted flag also handles permission requests resolved after leaving.
@@ -116,13 +116,13 @@ export default function App() {
                 {cameraError && <p className="camera-error" role="alert">{cameraError}</p>}
               </div>
             )}
-            <div className="feedback-panel" role="status"><span className="feedback-spark" aria-hidden="true">✧</span><div><strong>Your hand tracking</strong><p>{trackingFeedback}</p></div></div>
+            <div className={`feedback-panel ${handStatus.some(hand => hand.warning) ? 'tracking-warning' : ''}`} role="status"><span className="feedback-spark" aria-hidden="true">✧</span><div><strong>Your hand tracking</strong><p>{trackingFeedback}</p></div></div>
           </div>
           <p className="privacy-note"><span aria-hidden="true">◉</span> Live preview only. Nothing is recorded, saved, or uploaded. No microphone access.</p>
         </section>
 
         <div className="practice-sidebar">
-        <HandViewer handSampleRef={handSampleRef} cameraState={cameraState} selectedHand={selectedHand} onSelectHand={setSelectedHand} />
+        <HandViewer handStatus={handStatus} handSampleRef={handSampleRef} cameraState={cameraState} selectedHand={selectedHand} onSelectHand={setSelectedHand} />
         <aside className="alphabet-card" aria-labelledby="alphabet-title">
           <span className="panel-kicker">ONE LETTER AT A TIME</span>
           <h2 id="alphabet-title">Meet the alphabet</h2>
