@@ -6,6 +6,7 @@ import { getPalmPose } from './palmPose'
 import { getFingerAngles, getFingerReference, TRACKED_FINGERS, mapFingerBends } from './indexFingerPose'
 import { getCalibrationFeedback } from './calibrationFeedback'
 import { createFingerCalibration, advanceFingerCalibration, cancelFingerCollections } from './fingerCalibration'
+import { createThumbCalibration, getThumbMeasurement, advanceThumbCalibration, getThumbTargets, getThumbRootOffset, getThumbFeedback } from './thumbPose'
 
 // Replace this asset to refine the hand while preserving its rig and animation.
 const MODEL_URL = `${import.meta.env.BASE_URL}models/ASLTutor_hand_model_clean.glb`
@@ -53,6 +54,9 @@ export default function HandViewer({ handSampleRef, cameraState, selectedHand, o
   const modeRef = useRef('test')
   const cameraOnRef = useRef(false)
   const fingerCalibrationRef = useRef(createFingerCalibration())
+  const thumbCalibrationRef = useRef({ Left: createThumbCalibration(), Right: createThumbCalibration() })
+  const thumbSkeletonRef = useRef(false)
+  const [showThumbSkeleton, setShowThumbSkeleton] = useState(false)
   const [calibrating, setCalibrating] = useState(false)
   const [tipInfo, setTipInfo] = useState(null)
   const [calibrationFeedback, setCalibrationFeedback] = useState({ state: 'waiting', progress: 0, message: 'Enable the camera to begin.' })
@@ -89,6 +93,11 @@ export default function HandViewer({ handSampleRef, cameraState, selectedHand, o
     let appliedMode = 'test'
     let previousLiveMessage = ''
     let fingerJoints = {}
+    let thumbJoints = []
+    let thumbTargets = null
+    let thumbRootTarget = null
+    let thumbRawSegments = null
+    let modelPalmWidth = 0
     let activeHand = 'Left'
     const bendAxis = new THREE.Vector3(1, 0, 0)
     let currentView = 'room'
@@ -98,6 +107,26 @@ export default function HandViewer({ handSampleRef, cameraState, selectedHand, o
     let lastFeedbackKey = ''
     const scene = new THREE.Scene()
     scene.background = new THREE.Color('#142943')
+    // Draw bone centers through the skin only when requested. Cyan is the
+    // animated skeleton; amber is its target; magenta is raw tracked direction.
+    const makeThumbLine = color => {
+      const geometry = new THREE.BufferGeometry()
+      geometry.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(12), 3))
+      const line = new THREE.Line(geometry, new THREE.LineBasicMaterial({ color, depthTest: false, depthWrite: false }))
+      line.frustumCulled = false
+      line.renderOrder = 10
+      scene.add(line)
+      return line
+    }
+    const thumbBonesLine = makeThumbLine('#58edff')
+    const thumbTargetLine = makeThumbLine('#ffbf57')
+    const thumbRawLine = makeThumbLine('#f48cfa')
+    thumbRawLine.renderOrder = 12
+    const thumbDots = new THREE.Points(thumbBonesLine.geometry,
+      new THREE.PointsMaterial({ color: '#58edff', size: 6, sizeAttenuation: false, depthTest: false, depthWrite: false }))
+    thumbDots.frustumCulled = false
+    thumbDots.renderOrder = 11
+    scene.add(thumbDots)
     const camera = new THREE.PerspectiveCamera(40, 1, 0.1, 80)
     camera.position.set(0, 3.7, 8.5)
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2))
@@ -194,6 +223,16 @@ export default function HandViewer({ handSampleRef, cameraState, selectedHand, o
             const bone = model.getObjectByName(`${finger}_${joint}`)
             return bone?.isBone ? { bone, rest: bone.quaternion.clone() } : null
           })]))
+        thumbJoints = [1, 2, 3].map(joint => {
+          const bone = model.getObjectByName(`Thumb_${joint}`)
+          // The exported terminal bone has no child marker. Its authored tip
+          // length is sqrt(0.4² + 0.5²); the first two lengths come from the rig.
+          const length = joint < 3 ? model.getObjectByName(`Thumb_${joint + 1}`)?.position.length() : Math.hypot(0.4, 0.5)
+          return bone?.isBone && length ? { bone, rest: bone.quaternion.clone(), restPosition: bone.position.clone(), length } : null
+        })
+        const indexBase = model.getObjectByName('Index_1')
+        const pinkyBase = model.getObjectByName('Pinky_1')
+        if (indexBase && pinkyBase) modelPalmWidth = indexBase.position.distanceTo(pinkyBase.position)
         setReady(true)
         setStatus(gltf.animations.length ? 'Model ready. Play the finger test.' : 'Model ready. No test animation was included.')
       } catch {
@@ -217,6 +256,10 @@ export default function HandViewer({ handSampleRef, cameraState, selectedHand, o
         placement.scale.set(Math.abs(placement.scale.x), placement.scale.y, placement.scale.z)
         placement.position.set(-1.65, 2.35, 0)
         appliedMode = modeRef.current
+        thumbTargets = null
+        thumbRootTarget = null
+        thumbRawSegments = null
+        if (thumbJoints[0]) thumbJoints[0].bone.position.copy(thumbJoints[0].restPosition)
       }
       if (!live && playingRef.current) mixer?.update(delta)
       if (live && placement) {
@@ -224,6 +267,7 @@ export default function HandViewer({ handSampleRef, cameraState, selectedHand, o
         const fresh = cameraOnRef.current && sample && performance.now() - sample.timestamp < 400
         const pose = fresh ? getPalmPose(sample) : null
         const feedbackAngles = {}
+        let thumbMeasurement = null
         let message = cameraOnRef.current ? 'Waiting for a clear selected palm. Holding the last pose.' : 'Enable the camera to mirror your palm.'
         if (!pose && performance.now() - lastTipReadout >= 250) {
           lastTipReadout = performance.now()
@@ -240,6 +284,12 @@ export default function HandViewer({ handSampleRef, cameraState, selectedHand, o
           const extent = (Math.abs(matrix[0]) * openSize.x + Math.abs(matrix[4]) * openSize.y + Math.abs(matrix[8]) * openSize.z) / 2
           pose.position.x = THREE.MathUtils.clamp(pose.position.x, -5.5 + extent, -0.15 - extent)
           placement.position.lerp(pose.position, blend)
+          // An unfinished collection belongs to one continuously visible hand.
+          // Switching sides preserves saved references but never mixes samples.
+          if (activeHand !== sample.handedness) {
+            cancelFingerCollections(fingerCalibrationRef.current)
+            for (const state of Object.values(thumbCalibrationRef.current)) state.request = null
+          }
           activeHand = sample.handedness
           const now = performance.now()
           const fingerBlend = 1 - Math.exp(-delta * 14)
@@ -270,7 +320,24 @@ export default function HandViewer({ handSampleRef, cameraState, selectedHand, o
               } : null)
             }
           }
-          message = `Live ${activeHand.toLowerCase()} palm + ${tracked.length}/4 fingers · Thumb stays open`
+          // Keep folded thumb directions in the palm frame. Calibration only
+          // removes small resting differences near the open pose.
+          const thumbAvailable = thumbJoints.length === 3 && thumbJoints.every(Boolean)
+          thumbMeasurement = thumbAvailable ? getThumbMeasurement(sample, pose.rotation) : null
+          if (thumbMeasurement) thumbRawSegments = thumbMeasurement.segments
+          const thumbCalibration = thumbCalibrationRef.current[activeHand]
+          advanceThumbCalibration(thumbCalibration, { measurement: thumbMeasurement, timestamp: sample.timestamp, now })
+          const nextThumbTargets = thumbAvailable ? getThumbTargets(thumbMeasurement, thumbCalibration.neutral, thumbJoints.map(joint => joint.rest)) : null
+          if (nextThumbTargets) thumbTargets = nextThumbTargets
+          if (nextThumbTargets) thumbJoints.forEach(({ bone }, i) => bone.quaternion.slerp(nextThumbTargets[i], fingerBlend))
+          // Move only the thumb root. Child bones inherit its translation while
+          // the palm and other fingers keep their existing positions/rotations.
+          const rootOffset = thumbAvailable ? getThumbRootOffset(thumbMeasurement, thumbCalibration.neutral, modelPalmWidth) : null
+          if (rootOffset) {
+            thumbRootTarget = thumbJoints[0].restPosition.clone().add(rootOffset)
+            thumbJoints[0].bone.position.lerp(thumbRootTarget, 1 - Math.exp(-delta * 7))
+          }
+          message = `Live ${activeHand.toLowerCase()} palm + ${tracked.length}/4 fingers · ${!thumbAvailable ? 'Thumb bones missing' : nextThumbTargets ? 'Thumb tracking' : 'Thumb unclear; holding pose'}`
 
         }
         // Lost or stale tracking freezes the model; update text only on change.
@@ -293,15 +360,58 @@ export default function HandViewer({ handSampleRef, cameraState, selectedHand, o
               finger: finger.toLowerCase(),
             }) }
           })
+          const thumbState = thumbCalibrationRef.current[activeHand]
+          if (!pose) advanceThumbCalibration(thumbState, { measurement: null, now: lastFeedbackTime })
+          fingers.push({ finger: 'Thumb', ...getThumbFeedback({
+            cameraOn: cameraOnRef.current, measurement: thumbMeasurement, state: thumbState, now: lastFeedbackTime,
+          }) })
           const pending = fingers.find(finger => finger.state !== 'ready')
           const feedback = { state: pending?.state ?? 'ready',
-            message: pending?.message ?? 'All four fingers calibrated. Try curling and reopening.', fingers }
-          setCalibrating(Object.values(fingerCalibrationRef.current[activeHand]).some(state => state.request))
+            message: pending?.message ?? 'All five digits calibrated. Try curling and reopening.', fingers }
+          setCalibrating(Boolean(thumbState.request) || Object.values(fingerCalibrationRef.current[activeHand]).some(state => state.request))
           const key = JSON.stringify(feedback)
           if (key !== lastFeedbackKey) { lastFeedbackKey = key; setCalibrationFeedback(feedback) }
         }
       }
       controls.update()
+      const showSkeleton = thumbSkeletonRef.current && thumbJoints.length === 3 && thumbJoints.every(Boolean)
+      thumbBonesLine.visible = thumbDots.visible = showSkeleton
+      thumbTargetLine.visible = showSkeleton && live && Boolean(thumbTargets)
+      thumbRawLine.visible = showSkeleton && live && Boolean(thumbRawSegments)
+      if (showSkeleton) {
+        scene.updateMatrixWorld(true)
+        const points = thumbJoints.map(({ bone }) => bone.getWorldPosition(new THREE.Vector3()))
+        points.push(thumbJoints[2].bone.localToWorld(new THREE.Vector3(0, thumbJoints[2].length, 0)))
+        const writePoints = (line, vertices) => {
+          vertices.forEach((point, i) => line.geometry.attributes.position.setXYZ(i, point.x, point.y, point.z))
+          line.geometry.attributes.position.needsUpdate = true
+        }
+        writePoints(thumbBonesLine, points)
+        if (thumbTargetLine.visible) {
+          const parent = thumbJoints[0].bone.parent
+          const point = (thumbRootTarget ?? thumbJoints[0].bone.position).clone()
+          const orientation = new THREE.Quaternion()
+          const targets = [parent.localToWorld(point.clone())]
+          thumbJoints.forEach(({ length }, i) => {
+            orientation.multiply(thumbTargets[i])
+            point.add(new THREE.Vector3(0, length, 0).applyQuaternion(orientation))
+            targets.push(parent.localToWorld(point.clone()))
+          })
+          writePoints(thumbTargetLine, targets)
+        }
+        if (thumbRawLine.visible) {
+          // Anchor both comparisons at the model's target root and use the
+          // same lengths. This compares directions without size differences.
+          const parent = thumbJoints[0].bone.parent
+          const point = (thumbRootTarget ?? thumbJoints[0].bone.position).clone()
+          const raw = [parent.localToWorld(point.clone())]
+          thumbJoints.forEach(({ length }, i) => {
+            point.addScaledVector(new THREE.Vector3().fromArray(thumbRawSegments[i]).normalize(), length)
+            raw.push(parent.localToWorld(point.clone()))
+          })
+          writePoints(thumbRawLine, raw)
+        }
+      }
       renderer.render(scene, camera)
     })
     return () => {
@@ -320,6 +430,7 @@ export default function HandViewer({ handSampleRef, cameraState, selectedHand, o
 
   function changeMode(nextMode) {
     cancelFingerCollections(fingerCalibrationRef.current)
+    for (const state of Object.values(thumbCalibrationRef.current)) state.request = null
     setCalibrating(false)
     playingRef.current = false
     setPlaying(false)
@@ -342,6 +453,7 @@ export default function HandViewer({ handSampleRef, cameraState, selectedHand, o
     const sample = handSampleRef.current
     if (!sample || performance.now() - sample.timestamp > 400) return
     fingerCalibrationRef.current[sample.handedness] = createFingerCalibration()[sample.handedness]
+    thumbCalibrationRef.current[sample.handedness] = createThumbCalibration()
   }
 
   return <section className="hand-viewer-card" aria-labelledby="hand-viewer-title">
@@ -358,27 +470,38 @@ export default function HandViewer({ handSampleRef, cameraState, selectedHand, o
       <button aria-label="Zoom in" disabled={!ready || failed} onClick={() => apiRef.current?.zoom(0.85)}>+</button>
       <button aria-label="Zoom out" disabled={!ready || failed} onClick={() => apiRef.current?.zoom(1.15)}>−</button>
       <button onClick={() => apiRef.current?.reset()} disabled={!ready || failed}>Reset view</button>
+      <button disabled={!ready || failed} aria-pressed={showThumbSkeleton} onClick={() => {
+        thumbSkeletonRef.current = !thumbSkeletonRef.current
+        setShowThumbSkeleton(thumbSkeletonRef.current)
+      }}>Thumb skeleton</button>
       <label className="viewer-select">View <select value={view} disabled={!ready || failed} onChange={event => {
         setView(event.target.value)
         apiRef.current?.view(event.target.value)
       }}><option value="straight">Straight-on</option><option value="room">Room angle</option></select></label>
       {mode === 'live' && <label className="viewer-select">Hand <select value={selectedHand} onChange={event => {
         cancelFingerCollections(fingerCalibrationRef.current)
+        for (const state of Object.values(thumbCalibrationRef.current)) state.request = null
         setCalibrating(false)
         setTipInfo(null)
         onSelectHand(event.target.value)
       }}>
         <option value="auto">Auto (first hand)</option><option value="Left">Left</option><option value="Right">Right</option>
       </select></label>}
-      {mode === 'live' && <button disabled={!ready || cameraState !== 'on' || calibrating} onClick={calibrateFingers}>{calibrating ? 'Sampling…' : 'Recalibrate fingers'}</button>}
+      {mode === 'live' && <button disabled={!ready || cameraState !== 'on' || calibrating} onClick={calibrateFingers}>{calibrating ? 'Sampling…' : 'Recalibrate hand'}</button>}
+      {mode === 'live' && <button disabled={!ready || cameraState !== 'on'} onClick={() => {
+        const sample = handSampleRef.current
+        if (sample && performance.now() - sample.timestamp < 400) thumbCalibrationRef.current[sample.handedness] = createThumbCalibration()
+      }}>Recalibrate thumb</button>}
       {mode === 'live' && <button onClick={() => {
         fingerCalibrationRef.current = createFingerCalibration()
+        thumbCalibrationRef.current = { Left: createThumbCalibration(), Right: createThumbCalibration() }
         setCalibrating(false)
       }}>Clear calibration</button>}
     </div>
     <p className="viewer-caption" role="status">{mode === 'live' ? liveMessage : 'Finger test · Switch to Live mirror to follow your palm'}</p>
     {mode === 'live' && <div className="tip-diagnostics">
-      <span>Open your hand comfortably. Keep fingers extended with natural spacing.</span>
+      <span>Open your hand comfortably with natural finger spacing and your thumb extended away from the palm.</span>
+      {showThumbSkeleton && <span>Cyan: model bones · Amber: corrected targets · Magenta: raw tracked directions</span>}
       {cameraState === 'on' && tipInfo && <span>Index base: measured {tipInfo.base}° → target {tipInfo.baseTarget}°</span>}
       {cameraState === 'on' && tipInfo && <span>Index middle: 3D {tipInfo.middle3D}° → target {tipInfo.middleTarget}°</span>}
       <span>{cameraState === 'on' && tipInfo ? `Index tip: measured ${tipInfo.estimated}° → target ${tipInfo.corrected}°` : 'Index tip: waiting for tracking'}</span>

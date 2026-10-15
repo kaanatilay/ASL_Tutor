@@ -312,6 +312,80 @@ The index readout shows measured versus applied base, middle, and tip angles
 to help distinguish tracker estimates from the model targets. Sideways spread
 is used to measure curl but is not yet animated on the model.
 
+### Thumb live milestone
+
+Live mirror also drives `Thumb_1`, `Thumb_2`, and `Thumb_3`. Each bone follows
+its tracked segment direction relative to the palm. Targets are converted into
+each moving parent's coordinate frame, allowing bends across the palm as well
+as out of its plane. The previous fixed-axis, unsigned hinge mapping could bend
+in the wrong direction during opposition; it has been replaced.
+`src/thumbPose.js` handles measurement, rest-pose mapping, calibration, and
+thumb-specific progress feedback. The existing four-finger mapping is unchanged.
+
+Keep an open hand in view with the thumb comfortably extended away from the
+palm for about one second. The fifth progress bar represents collection of a
+stable open-thumb reference, not tracking confidence. Each hand retains its
+own reference through tracking loss. **Recalibrate thumb** resets only the
+currently tracked thumb; **Recalibrate hand** resets all five digits for that
+hand; **Clear calibration** resets both hands. Accepted references last until
+the page reloads or they are reset. Missing/invalid thumb data holds its pose
+without blocking the palm or other fingers.
+
+Test opening, curling, moving across the palm, and touching each fingertip.
+Repeat on both hands while turning the palm forward, backward, and sideways.
+Also leave and reenter the camera view, then check that Test mode still plays
+the exported clip. Automated tests cover handedness, palm rotation, the actual
+exported bone rotations/hierarchy, stable sampling, lost data, and joint limits.
+Real-camera accuracy and skin deformation still need visual review. The model
+keeps its authored proportions, so exact fingertip contact is not guaranteed.
+All segment movement uses direction swings; axial thumb twist is not reconstructed
+from these landmarks. Two simultaneous model hands remain a later milestone.
+
+Open-thumb calibration now stores all three segment directions, with a stability
+check for each. Refresh and recalibrate after this change. **Thumb skeleton**
+toggles cyan model-bone lines and points; in live mode amber lines show the
+mapped target before smoothing. Nearly overlapping lines are expected after
+holding still. These lines keep the model's lengths and root position, not the
+user's exact proportions; the terminal endpoint uses the current asset's
+authored tip length. If the lines follow the desired pose but skin pinches,
+inspect mesh weights next. The directional tests include equal bend magnitudes
+in different planes, a fold across the palm, and the real exported hierarchy.
+
+### Thumb-root movement experiment
+
+The thumb directional correction has also been revised: each open-pose
+correction is capped at 12 degrees and fades from full strength at 10 degrees
+of segment travel to zero at 40 degrees. Folded poses therefore preserve their
+measured palm-relative directions instead of receiving a constant rotation
+toward the model's authored open pose. Joint safety limits still apply.
+
+With **Thumb skeleton** enabled, magenta shows raw tracked segment directions,
+amber shows corrected/limited targets, and cyan shows the smoothed model bones.
+All three use the model's segment lengths and root for comparison; these are
+direction overlays, not exact positions on the user's hand. Raw lines and target
+lines hold their last pose when tracking is lost. Refresh, recalibrate open,
+then repeat the horizontal folded-thumb pose on both hands. Compare the raw
+and corrected lines after holding still; deep folds should nearly overlap.
+
+Thumb calibration also saves landmark 1 (CMC) relative to the wrist in the
+palm's coordinate frame, normalized by index-to-pinky knuckle width. Only
+`Thumb_1` receives a translation offset; the palm and other finger bases remain
+fixed. The child thumb bones inherit that movement and keep their directional
+rotation mapping. The model's authored palm width converts the normalized
+offset back to rig units. No Blender asset changes are needed for this test.
+
+Offsets use 65% of measured sideways/vertical displacement and 35% of depth.
+Axis limits are 12%, 8%, and 6% of model palm width, with a 14% total bound.
+Translation is smoothed separately from rotation. Missing anchors hold the
+previous root position; Test mode restores its authored root position. The
+amber skeleton target includes translation, while cyan shows the smoothed bones.
+
+Refresh and hold a comfortably open thumb still to collect a new reference.
+Slowly fold toward the ring-finger base, reopen, and repeat on both hands.
+Check for reach improvement, root jitter, and stretching around the thumb pad.
+Move/rotate the whole hand while holding the thumb steady, then leave/reenter
+view. Root movement is approximate and remains subject to webcam review.
+
 ### Original export notes
 
 We will export the surface and rig as glTF Binary (`.glb`) and load that asset in
