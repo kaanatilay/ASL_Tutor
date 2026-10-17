@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "language": "ase",
+  "entries": [
+    {
+      "id": "asl.alphabet.a",
+      "label": "A",
+      "category": "alphabet",
+      "targetType": "static",
+      "description": "ASL fingerspelled letter A. Evaluate the held target pose; retain the approach movement for demonstration playback."
+    },
+    {
+      "id": "asl.alphabet.s",
+      "label": "S",
+      "category": "alphabet",
+      "targetType": "static",
+      "description": "ASL fingerspelled letter S. Learner examples require technique review."
+    },
+    {
+      "id": "asl.alphabet.b",
+      "label": "B",
+      "category": "alphabet",
+      "targetType": "static",
+      "description": "ASL fingerspelled letter B. Learner examples require technique review."
+    }
+  ]
+}

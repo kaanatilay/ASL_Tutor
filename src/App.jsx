@@ -2,13 +2,55 @@ import { useEffect, useRef, useState } from 'react'
 import './App.css'
 import useHandTracking from './useHandTracking'
 import HandViewer from './HandViewer'
+import DataPreparation from './DataPreparation'
+import Comparison from './ComparisonPage.jsx'
+import SilhouetteOverlay from './SilhouetteOverlay'
+import { validateGuide } from './silhouette.js'
+import { loadGuides, persistGuides } from './guideStorage.js'
+import { targetLabel } from './vocabulary.js'
+import LiveMatchingPanel from './LiveMatchingPanel'
 
 // A small vector camera icon stays crisp without loading an external image.
 function CameraIcon() {
   return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><rect x="3" y="6" width="13" height="12" rx="3" /><path d="m16 10 5-3v10l-5-3" /></svg>
 }
 
+// Switching pages unmounts the practice page and releases its camera and 3D resources.
 export default function App() {
+  const [page, setPage] = useState('practice')
+  // Restore only validated contour coordinates, never reference image pixels.
+  const [guideState, setGuideState] = useState(() => {
+    try { return loadGuides(window.localStorage) }
+    catch { return { guides: {}, message: 'Browser storage unavailable; guides will work for this session only.' } }
+  })
+  function saveGuide(guide) {
+    validateGuide(guide)
+    const guides = { ...guideState.guides, [guide.targetId]: guide }
+    let status
+    try { status = persistGuides(window.localStorage, guides) }
+    catch { status = { persisted: false, message: 'Browser storage unavailable; export guide.json as a backup.' } }
+    setGuideState({ guides, message: status.message })
+    return status
+  }
+  function removeGuide(targetId) {
+    const guides = { ...guideState.guides }
+    delete guides[targetId]
+    let status
+    try { status = persistGuides(window.localStorage, guides) }
+    catch { status = { message: 'Removal is session-only because browser storage is unavailable.' } }
+    setGuideState({ guides, message: status.message })
+  }
+  return <>
+    <nav className="top-navigation" aria-label="Main navigation">
+      <button aria-current={page === 'practice' ? 'page' : undefined} onClick={() => setPage('practice')}>Practice</button>
+      <button aria-current={page === 'data' ? 'page' : undefined} onClick={() => setPage('data')}>Data preparation</button>
+      <button aria-current={page === 'comparison' ? 'page' : undefined} onClick={() => setPage('comparison')}>Comparison</button>
+    </nav>
+    {page === 'practice' ? <Practice guides={guideState.guides} storageMessage={guideState.message} onGuide={saveGuide} onRemoveGuide={removeGuide} /> : page === 'data' ? <DataPreparation onGuide={saveGuide} /> : <Comparison />}
+  </>
+}
+
+function Practice({ guides, storageMessage, onGuide, onRemoveGuide }) {
   const videoRef = useRef(null)
   const canvasRef = useRef(null)
   const streamRef = useRef(null)
@@ -19,6 +61,11 @@ export default function App() {
   const [cameraError, setCameraError] = useState('')
   const [selectedLetter, setSelectedLetter] = useState('A')
   const [selectedHand, setSelectedHand] = useState('auto')
+  const [showGuide, setShowGuide] = useState(true)
+  const [showTracking, setShowTracking] = useState(true)
+  const [guideMessage, setGuideMessage] = useState('Build A/S/B outlines in Data preparation or load saved guide.json files.')
+  const selectedTargetId = `asl.alphabet.${selectedLetter.toLowerCase()}`
+  const guide = guides[selectedTargetId] ?? null
   const { feedback: trackingFeedback, handStatus } = useHandTracking(cameraState, videoRef, canvasRef, handSampleRef)
 
   // Release every camera track when the page component leaves the screen.
@@ -99,11 +146,33 @@ export default function App() {
       <div className="practice-layout">
         <section className="practice-card" aria-labelledby="practice-title">
           <div className="section-heading"><h2 id="practice-title">Your practice space</h2><span className="status"><i className={cameraState === 'on' ? 'live-dot' : ''} />{cameraState === 'on' ? 'Camera on' : 'Camera off'}</span></div>
+          <details className="guide-controls"><summary>Saved silhouette guides — A / S / B</summary>
+            <label>Load guide.json<input type="file" accept=".json,application/json" onChange={async event => {
+              const file = event.target.files?.[0]; event.target.value = ''
+              if (!file) return
+              try {
+                if (file.size > 2 * 1024 * 1024) throw new Error('Guide import limit is 2 MB.')
+                const imported = validateGuide(JSON.parse(await file.text()))
+                const status = onGuide(imported)
+                setGuideMessage(`${targetLabel(imported.targetId)} guide loaded. ${status.message}`)
+              } catch (error) { setGuideMessage(`Guide import failed: ${error.message}`) }
+            }} /></label>
+            <label><input type="checkbox" checked={showGuide} onChange={event => setShowGuide(event.target.checked)} /> Show dotted outline</label>
+            <label><input type="checkbox" checked={showTracking} onChange={event => setShowTracking(event.target.checked)} /> Show live tracking skeleton</label>
+            <p>Saved letters: {Object.keys(guides).map(targetLabel).join(', ') || 'none'}. {storageMessage}</p>
+            <p role="status">{guideMessage}</p>
+            {guide ? <><p>{selectedLetter} outline ready. It appears only with a fresh, confidently identified left hand; its shape stays fixed.</p>
+              <button type="button" onClick={() => onRemoveGuide(selectedTargetId)}>Remove {selectedLetter} guide</button></> : <p>No outline saved for {selectedLetter}.</p>}
+          </details>
           <div className={`camera-stage ${cameraState === 'on' ? 'camera-active' : ''}`}>
             {cameraState === 'on' ? (
               <>
                 <video ref={videoRef} autoPlay playsInline muted aria-label="Live mirrored webcam preview" />
-                <canvas ref={canvasRef} className="hand-overlay" aria-hidden="true" />
+                <canvas ref={canvasRef} className="hand-overlay" style={{ visibility: showTracking ? 'visible' : 'hidden' }} aria-hidden="true" />
+                {guide && showGuide && selectedHand !== 'Right' &&
+                  <SilhouetteOverlay guide={guide} videoRef={videoRef} handSampleRef={handSampleRef} />}
+                <button type="button" className="silhouette-toggle" disabled={!guide} aria-pressed={showGuide && !!guide}
+                  onClick={() => setShowGuide(value => !value)}>{guide ? showGuide ? 'Hide silhouette' : 'Show silhouette' : 'No saved silhouette'}</button>
                 <button className="stop-button" onClick={stopCamera}>Turn off camera</button>
               </>
             ) : (
@@ -118,7 +187,9 @@ export default function App() {
             )}
             <div className={`feedback-panel ${handStatus.some(hand => hand.warning) ? 'tracking-warning' : ''}`} role="status"><span className="feedback-spark" aria-hidden="true">✧</span><div><strong>Your hand tracking</strong><p>{trackingFeedback}</p></div></div>
           </div>
-          <p className="privacy-note"><span aria-hidden="true">◉</span> Live preview only. Nothing is recorded, saved, or uploaded. No microphone access.</p>
+          <p className="privacy-note"><span aria-hidden="true">◉</span> Live video is not recorded or uploaded. Guides are saved in this browser; live measurements are buffered briefly in memory. No microphone access.</p>
+          <LiveMatchingPanel targetId={selectedTargetId} cameraOn={cameraState === 'on'}
+            selectedHand={selectedHand} handSampleRef={handSampleRef} />
         </section>
 
         <div className="practice-sidebar">

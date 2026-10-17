@@ -12,6 +12,14 @@ dist
 dist-ssr
 *.local
 
+# Keep source recordings and generated research data local; retain folder markers.
+/data/recordings/*
+!/data/recordings/.gitkeep
+/data/derived/*
+!/data/derived/.gitkeep
+/data/datasets/*
+!/data/datasets/.gitkeep
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json
